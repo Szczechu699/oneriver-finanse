@@ -127,13 +127,21 @@ async function wyslijKolejke() {
     if (!wgKart.has(p.karta)) wgKart.set(p.karta, []);
     wgKart.get(p.karta).push(p);
   });
+  let pierwszyBlad = null;
   for (const [karta, lista] of wgKart) {
-    for (let i = 0; i < lista.length; i += 200) {
-      const paczka = lista.slice(i, i + 200);
-      await wywolaj('zapisz', { karta, kto, wiersze: paczka.map(p => p.wiersz) });
-      await db.kolejkaUsun(paczka.map(p => p.nr));
+    try {
+      for (let i = 0; i < lista.length; i += 200) {
+        const paczka = lista.slice(i, i + 200);
+        await wywolaj('zapisz', { karta, kto, wiersze: paczka.map(p => p.wiersz) });
+        await db.kolejkaUsun(paczka.map(p => p.nr));
+      }
+    } catch (e) {
+      // Błąd jednej karty (np. starsze API bez karty BUDZETY) nie wstrzymuje pozostałych.
+      if (!(e instanceof BladApi)) throw e;
+      pierwszyBlad = pierwszyBlad || e;
     }
   }
+  if (pierwszyBlad) throw pierwszyBlad;
 }
 
 async function pobierzZmiany(pelna) {
@@ -175,12 +183,14 @@ export function synchronizuj({ pelna = false } = {}) {
     try {
       kartyPobierane = Object.keys(KLUCZE);
       const bladPliku = await wyslijPliki();
-      await wyslijKolejke();
+      let bladZapisu = null;
+      await wyslijKolejke().catch(e => { if (e instanceof BladApi) bladZapisu = e.message; else throw e; });
       await pobierzZmiany(pelna);
       const teraz = new Date().toISOString();
       await db.metaZapisz('ostatnia', teraz);
       await odswiezLicznik();
-      ustaw({ tryb: bladPliku ? 'blad' : 'ok', ostatnia: teraz, blad: bladPliku, zmiana: Date.now() });
+      const blad = bladZapisu || bladPliku;
+      ustaw({ tryb: blad ? 'blad' : 'ok', ostatnia: teraz, blad, zmiana: Date.now() });
     } catch (e) {
       await odswiezLicznik();
       ustaw({ tryb: navigator.onLine ? 'blad' : 'offline', blad: e.message, zmiana: Date.now(), bladApi: e instanceof BladApi });
