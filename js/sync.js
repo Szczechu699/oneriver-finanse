@@ -1,4 +1,7 @@
-// Synchronizacja: najpierw wysyłka kolejki (to, co zapisano na urządzeniu), potem pobranie zmian z arkusza.
+// Synchronizacja z arkuszem:
+// 1) załączniki z pamięci urządzenia → Dysk Google (link podmienia się w transakcjach),
+// 2) kolejka zapisów → arkusz,
+// 3) zmiany z arkusza → urządzenie.
 
 import * as db from './db.js';
 import { wywolaj, ustawienia, skonfigurowane, BladApi } from './api.js';
@@ -6,11 +9,13 @@ import { wywolaj, ustawienia, skonfigurowane, BladApi } from './api.js';
 export const KLUCZE = {
   SLOWNIK: r => `${r.lista}|${r.id}`,
   TRANSAKCJE: r => String(r.id),
+  PLANOWANE: r => String(r.id),
+  BUDZETY: r => String(r.id),
 };
-const KARTY_POBIERANE = Object.keys(KLUCZE);
+let kartyPobierane = Object.keys(KLUCZE);
 
 const sluchacze = new Set();
-let stan = { tryb: 'start', oczekujace: 0, ostatnia: null, blad: null };
+let stan = { tryb: 'start', oczekujace: 0, plikiOczekujace: 0, ostatnia: null, blad: null };
 let biezaca = null;
 
 export function obserwuj(fn) {
@@ -24,26 +29,67 @@ function ustaw(zmiana) {
   sluchacze.forEach(fn => fn(stan));
 }
 
-export function stanSynchronizacji() {
-  return stan;
-}
+export const stanSynchronizacji = () => stan;
 
 export async function odswiezLicznik() {
-  const k = await db.kolejka();
-  ustaw({ oczekujace: k.length, oczekujaceKlucze: new Set(k.map(p => `${p.karta}|${p.klucz}`)) });
+  const [k, p] = await Promise.all([db.kolejka(), db.pliki()]);
+  ustaw({
+    oczekujace: k.length + p.length,
+    plikiOczekujace: p.length,
+    oczekujaceKlucze: new Set(k.map(x => `${x.karta}|${x.klucz}`)),
+    oczekujacePliki: new Set(p.map(x => x.plik_id)),
+  });
 }
 
 /** Zapis na urządzeniu + kolejka do wysłania. Działa także bez internetu. */
-export async function zapisz(karta, wiersze) {
+export async function zapisz(karta, wiersze, pliki = []) {
   const klucz = KLUCZE[karta];
+  for (const p of pliki) await db.plikDodaj(p);
   await db.zapiszWiersze(karta, wiersze, klucz);
   for (const w of wiersze) await db.kolejkaDodaj(karta, klucz(w), w);
   await odswiezLicznik();
   synchronizuj().catch(() => {});
 }
 
-function zaokr(n) {
-  return Math.round(n * 100) / 100;
+const zaokr = n => Math.round(n * 100) / 100;
+
+function naBase64(blob) {
+  return new Promise((ok, blad) => {
+    const r = new FileReader();
+    r.onload = () => ok(String(r.result).split(',')[1] || '');
+    r.onerror = () => blad(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+
+/** Linia w kolumnie „zalacznik”: „nazwa | link” albo „nazwa | oczekuje:<plik_id>”. */
+async function podmienZnacznik(plikId, url) {
+  const znacznik = 'oczekuje:' + plikId;
+  for (const karta of ['TRANSAKCJE', 'PLANOWANE']) {
+    const zmienione = (await db.wiersze(karta))
+      .filter(w => String(w.zalacznik || '').includes(znacznik))
+      .map(w => ({ ...w, zalacznik: String(w.zalacznik).split(znacznik).join(url) }));
+    if (!zmienione.length) continue;
+    await db.zapiszWiersze(karta, zmienione, KLUCZE[karta]);
+    for (const w of zmienione) await db.kolejkaDodaj(karta, KLUCZE[karta](w), w);
+  }
+}
+
+async function wyslijPliki() {
+  const lista = await db.pliki();
+  let blad = null;
+  for (const p of lista) {
+    try {
+      const dane = await naBase64(p.blob);
+      const wynik = await wywolaj('zalacznik', { plik_id: p.plik_id, nazwa: p.nazwa, mime: p.mime, dane, data: p.data }, 180000);
+      await podmienZnacznik(p.plik_id, wynik.url);
+      await db.plikUsun(p.plik_id);
+    } catch (e) {
+      blad = 'Załącznik „' + p.nazwa + '”: ' + e.message;
+      if (!(e instanceof BladApi)) break;     // brak sieci – reszta poczeka
+    }
+  }
+  return blad;
 }
 
 async function uzupelnijKursy(pozycje) {
@@ -93,11 +139,20 @@ async function wyslijKolejke() {
 async function pobierzZmiany(pelna) {
   const od = {};
   if (!pelna) {
-    for (const k of KARTY_POBIERANE) od[k] = (await db.metaPobierz('stan:' + k)) || null;
+    for (const k of kartyPobierane) od[k] = (await db.metaPobierz('stan:' + k)) || null;
   }
-  const wynik = await wywolaj('pobierzWiele', { karty: KARTY_POBIERANE, od }, 90000);
+  let wynik;
+  try {
+    wynik = await wywolaj('pobierzWiele', { karty: kartyPobierane, od }, 90000);
+  } catch (e) {
+    // Starsze API nie zna nowej karty – pobieramy resztę, zamiast stać w miejscu.
+    const m = /Nieznana karta: (\w+)/.exec(e.message || '');
+    if (!m || !kartyPobierane.includes(m[1])) throw e;
+    kartyPobierane = kartyPobierane.filter(k => k !== m[1]);
+    return pobierzZmiany(pelna);
+  }
   const czekajace = new Set((await db.kolejka()).map(p => `${p.karta}|${p.klucz}`));
-  for (const karta of KARTY_POBIERANE) {
+  for (const karta of kartyPobierane) {
     const dane = wynik[karta];
     const klucz = KLUCZE[karta];
     const doZapisu = dane.wiersze.filter(w => !czekajace.has(`${karta}|${klucz(w)}`));
@@ -114,22 +169,18 @@ export function synchronizuj({ pelna = false } = {}) {
   if (biezaca) return biezaca;
   biezaca = (async () => {
     await odswiezLicznik();
-    if (!skonfigurowane()) {
-      ustaw({ tryb: 'brak-ustawien', blad: null });
-      return;
-    }
-    if (!navigator.onLine) {
-      ustaw({ tryb: 'offline', blad: null });
-      return;
-    }
+    if (!skonfigurowane()) { ustaw({ tryb: 'brak-ustawien', blad: null }); return; }
+    if (!navigator.onLine) { ustaw({ tryb: 'offline', blad: null }); return; }
     ustaw({ tryb: 'praca', blad: null });
     try {
+      kartyPobierane = Object.keys(KLUCZE);
+      const bladPliku = await wyslijPliki();
       await wyslijKolejke();
       await pobierzZmiany(pelna);
       const teraz = new Date().toISOString();
       await db.metaZapisz('ostatnia', teraz);
       await odswiezLicznik();
-      ustaw({ tryb: 'ok', ostatnia: teraz, blad: null, zmiana: Date.now() });
+      ustaw({ tryb: bladPliku ? 'blad' : 'ok', ostatnia: teraz, blad: bladPliku, zmiana: Date.now() });
     } catch (e) {
       await odswiezLicznik();
       ustaw({ tryb: navigator.onLine ? 'blad' : 'offline', blad: e.message, zmiana: Date.now(), bladApi: e instanceof BladApi });

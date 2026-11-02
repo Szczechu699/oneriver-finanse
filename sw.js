@@ -1,9 +1,10 @@
 // Service worker: trzyma pliki aplikacji w pamięci urządzenia, żeby działała bez internetu.
 // Przy każdej nowej wersji aplikacji zmień WERSJA.
-const WERSJA = 'or-finanse-0.1.0';
+const WERSJA = 'or-finanse-0.2.0';
 const PLIKI = [
   './', './index.html', './css/app.css',
   './js/app.js', './js/db.js', './js/api.js', './js/sync.js',
+  './js/util.js', './js/dane.js', './js/formularz.js', './js/widoki.js',
   './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
 ];
 const CZCIONKI = 'or-finanse-czcionki';

@@ -1,7 +1,7 @@
 // Lokalna baza w przeglądarce (IndexedDB): kopie kart arkusza, kolejka wysyłki, ustawienia techniczne.
 
 const NAZWA = 'oneriver-finanse';
-const WERSJA_BAZY = 1;
+const WERSJA_BAZY = 2;
 let polaczenie = null;
 
 function otworz() {
@@ -18,6 +18,8 @@ function otworz() {
           db.createObjectStore('kolejka', { keyPath: 'nr', autoIncrement: true });
         }
         if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta');
+        // v2: załączniki czekające na wysłanie na Dysk
+        if (!db.objectStoreNames.contains('pliki')) db.createObjectStore('pliki', { keyPath: 'plik_id' });
       };
       r.onsuccess = () => ok(r.result);
       r.onerror = () => blad(r.error);
@@ -100,10 +102,23 @@ export async function metaZapisz(klucz, wartosc) {
   return transakcja(['meta'], 'readwrite', t => { t.objectStore('meta').put(wartosc, klucz); });
 }
 
+export async function plikDodaj(p) {
+  return transakcja(['pliki'], 'readwrite', t => { t.objectStore('pliki').put(p); });
+}
+
+export async function pliki() {
+  return transakcja(['pliki'], 'readonly', t => zadanie(t.objectStore('pliki').getAll()));
+}
+
+export async function plikUsun(plikId) {
+  return transakcja(['pliki'], 'readwrite', t => { t.objectStore('pliki').delete(plikId); });
+}
+
 export async function wyczyscWszystko() {
-  return transakcja(['wiersze', 'kolejka', 'meta'], 'readwrite', t => {
+  return transakcja(['wiersze', 'kolejka', 'meta', 'pliki'], 'readwrite', t => {
     t.objectStore('wiersze').clear();
     t.objectStore('kolejka').clear();
     t.objectStore('meta').clear();
+    t.objectStore('pliki').clear();
   });
 }

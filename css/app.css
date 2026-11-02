@@ -320,3 +320,92 @@ dialog::backdrop { background: rgb(10 25 24 / .55); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
 }
+
+/* ───────── wersja 0.2 ───────── */
+.dodaj.typ-wymiana { --akcent: #2E5877; }
+@media (prefers-color-scheme: dark) { .dodaj.typ-wymiana { --akcent: #3E7299; } }
+
+.typy { grid-template-columns: auto auto 1.4fr auto; }
+.typy button { font-size: 14.5px; padding: 9px 8px; }
+@media (max-width: 420px) { .typy { grid-template-columns: 1fr 1fr; border-radius: 18px; } }
+.podpis-kwoty { font-size: 14px; opacity: .8; margin-top: 4px; }
+
+.zakladki .licznik {
+  display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; margin-left: 4px;
+  border-radius: 999px; background: var(--kukurydza); color: #2A1F02; font-size: 12px; line-height: 1;
+}
+.zakladki .licznik[hidden] { display: none; }
+@media (max-width: 720px) {
+  .zakladki { gap: 2px; padding-inline: 4px; }
+  .zakladki a { padding: 8px 4px; font-size: 13.5px; border-radius: 12px; }
+}
+
+.link { border: 0; background: none; padding: 6px 0; color: var(--rzeka); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+@media (prefers-color-scheme: dark) { .link { color: #7CC7C1; } }
+.siatka + .link, .podkategorie + .link { margin-top: 10px; }
+.limit { margin: 10px 0 0; font-size: 15px; color: var(--szary); }
+.limit.przekroczony { color: var(--czerwien); font-weight: 700; }
+
+.podzial { display: grid; gap: 10px; }
+.czesc { display: grid; grid-template-columns: 1fr 130px 44px; gap: 8px; }
+.usun {
+  width: 44px; min-height: 44px; border-radius: var(--r); border: 1.5px solid var(--linia); background: var(--papier);
+  font-size: 22px; line-height: 1; color: var(--szary);
+}
+.reszta { margin: 0; font-size: 15px; }
+.reszta.ok { color: var(--wplyw); font-weight: 700; }
+.reszta.brak { color: var(--czerwien); }
+
+.zalaczniki { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 6px; }
+.zalaczniki li { display: flex; align-items: center; gap: 10px; background: var(--papier); border: 1px solid var(--linia); border-radius: var(--r); padding: 6px 6px 6px 14px; }
+.zalaczniki li a, .zalaczniki li > span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.zalaczniki .usun { width: 36px; min-height: 36px; font-size: 18px; }
+label.chip { display: inline-flex; align-items: center; cursor: pointer; }
+label.chip:focus-within { outline: 3px solid var(--kukurydza); outline-offset: 2px; }
+
+.plan { margin-bottom: 8px; }
+.co-ile { display: grid; grid-template-columns: 90px 1fr; gap: 8px; }
+.przelacznik.duzy { margin-bottom: 22px; font-size: 16px; }
+
+.kwota-wiersza small { display: block; font-size: 14px; font-weight: 500; color: var(--szary); text-align: right; }
+.znacznik.potw { background: #D9EDDC; color: #1D4D26; border-color: #D9EDDC; }
+.filtr-budzetu { margin: 10px 0 0; }
+
+.naglowek-sekcji { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.naglowek-sekcji h1 { font-family: var(--font-liczby); font-size: 30px; margin: 0; }
+.planowane, .budzety, .formularz-budzetu { max-width: 860px; margin: 0 auto; }
+.formularz-budzetu { max-width: 680px; }
+.formularz-budzetu h1 { font-family: var(--font-liczby); font-size: 30px; margin: 4px 0 14px; }
+
+.wiersz-planu { display: grid; }
+.akcje-planu { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 14px 12px 70px; }
+.akcje-planu button { min-height: 40px; padding: 6px 16px; border-radius: 999px; border: 0; background: var(--rzeka); color: #fff; font-weight: 700; }
+.akcje-planu .drugorzedny { border-radius: 999px; }
+.po-terminie h2 { color: var(--czerwien); }
+
+.tytul-grupy { font-size: 17px; margin: 22px 0 10px; color: var(--szary); }
+.karty-budzetow { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+.karta-budzetu {
+  background: var(--papier); border: 1px solid var(--linia); border-radius: var(--r-duzy); padding: 16px 18px 12px;
+  border-top: 6px solid var(--kolor);
+}
+.karta-budzetu .naglowek-karty { display: block; color: inherit; text-decoration: none; }
+.karta-budzetu h3 { margin: 0; font-size: 19px; }
+.karta-budzetu .naglowek-karty span { font-size: 14px; color: var(--szary); }
+.pasek { height: 12px; border-radius: 999px; background: var(--papier-2); border: 1px solid var(--linia); margin: 14px 0 8px; overflow: hidden; }
+.pasek span { display: block; height: 100%; background: var(--rzeka); border-radius: 999px; }
+.karta-budzetu.przekroczony .pasek span { background: var(--czerwien); }
+.karta-budzetu .liczby { margin: 0; font-family: var(--font-liczby); font-size: 20px; font-variant-numeric: tabular-nums; }
+.karta-budzetu .zostalo { margin: 2px 0 4px; font-size: 15px; }
+.karta-budzetu.przekroczony .zostalo { color: var(--czerwien); font-weight: 700; }
+.karta-budzetu .dodatkowe { margin: 0; font-size: 14px; color: var(--szary); }
+
+.kolory { display: flex; flex-wrap: wrap; gap: 10px; }
+.kolory button { width: 40px; height: 40px; border-radius: 50%; border: 2px solid var(--linia); background: var(--k); }
+.kolory button[aria-pressed="true"] { border-color: var(--atrament); box-shadow: 0 0 0 3px var(--papier), 0 0 0 5px var(--atrament); }
+.przyciski a.przycisk.drugorzedny { display: inline-flex; }
+@media (max-width: 1080px) and (min-width: 721px) {
+  .marka span { display: none; }
+  .zakladki { margin-left: 4px; }
+  .zakladki a { padding: 8px 12px; }
+}
