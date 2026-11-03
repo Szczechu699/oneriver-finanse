@@ -3,7 +3,7 @@
 import * as sync from './sync.js';
 import { $, esc, zaokr, kwotaTxt, dataLok, dodajDni, przesunDate, roznicaDni, dataSlownie, dataKrotko, uuid, odmiana, toast, okno, bezSkoku } from './util.js';
 import {
-  dane, wczytajDane, kolorKonta, ikona, kolorKategorii, KOLORY, opisRytmu, aktywnePlanowane, nastepnyTermin, terminy,
+  dane, wczytajDane, konta, glowne, podmioty, kolorKonta, ikona, kolorKategorii, KOLORY, opisRytmu, aktywnePlanowane, nastepnyTermin, terminy,
   miesiecznyKoszt, kierunekPlanu, RODZAJE_POZYCZEK, stanPozyczki,
 } from './dane.js';
 import { zaplacRate, cofnijSplate, doZaplatyRaty } from './pozyczki.js';
@@ -116,26 +116,48 @@ function wierszRozliczonej(t) {
 
 // ── Planowane ──
 
-const stan = { okres: 'miesiac', zakladka: 'wszystko', szukaj: '' };
-const OKRESY = [['miesiac', 'Do końca miesiąca'], ['30', '30 dni'], ['90', '3 miesiące'], ['365', '12 miesięcy']];
+const stan = {
+  okres: 'miesiac', zakladka: 'wszystko', szukaj: '', panel: false,
+  rodzaje: new Set(), konta: new Set(), kategorie: new Set(), podmioty: new Set(),
+};
+const OKRESY = [['miesiac', 'Do końca miesiąca'], ['30', '30 dni'], ['90', '3 miesiące'], ['365', '12 miesięcy'], ['wszystko', 'Wszystko']];
+const RODZAJE_PLANU = [['wydatki', 'Wydatki'], ['wplywy', 'Wpływy'], ['subskrypcje', 'Subskrypcje'], ['raty', 'Raty pożyczek']];
 
 function koniecOkresu() {
   const dzis = dataLok();
   if (stan.okres === 'miesiac') return dodajDni(przesunDate(dzis.slice(0, 7) + '-01', 'miesiąc', 1), -1);
   if (stan.okres === '30') return dodajDni(dzis, 30);
   if (stan.okres === '90') return przesunDate(dzis, 'miesiąc', 3);
-  return przesunDate(dzis, 'miesiąc', 12);
+  if (stan.okres === '365') return przesunDate(dzis, 'miesiąc', 12);
+  return '9999-12-31';
 }
 
-function bilans() {
+function rodzajPlanu(p) {
+  if (p.rodzaj === 'rata') return 'raty';
+  if (p.rodzaj === 'subskrypcja') return 'subskrypcje';
+  return kierunekPlanu(p) === 'wpływ' ? 'wplywy' : 'wydatki';
+}
+
+const liczbaFiltrow = () => stan.rodzaje.size + stan.konta.size + stan.kategorie.size + stan.podmioty.size;
+
+/** Pozycje po filtrach (bez okresu, zakładki i szukania). */
+function poFiltrach() {
+  return aktywnePlanowane().filter(p =>
+    (!stan.rodzaje.size || stan.rodzaje.has(rodzajPlanu(p)))
+    && (!stan.konta.size || stan.konta.has(p.konto))
+    && (!stan.kategorie.size || stan.kategorie.has(p.kategoria) || stan.kategorie.has(p.zrodlo_przychodu))
+    && (!stan.podmioty.size || stan.podmioty.has(p.podmiot || 'wspólne')));
+}
+
+/** Bilans okresu: zaległe (termin minął, nierozliczone) + nadchodzące do końca okresu. */
+function bilans(lista) {
   const dzis = dataLok();
-  const koniec = koniecOkresu();
-  const b = { wplywy: 0, wydatki: 0, zalWpl: 0, zalWyd: 0, nZal: 0, obce: {}, srednio: 0 };
-  aktywnePlanowane().forEach(p => {
+  const koniec = stan.okres === 'wszystko' ? przesunDate(dzis, 'miesiąc', 12) : koniecOkresu();
+  const b = { wplywy: 0, wydatki: 0, zalWpl: 0, zalWyd: 0, nZal: 0, obce: {}, srednio: 0, koniec };
+  lista.forEach(p => {
     const w = p.waluta || 'PLN';
     const wplyw = kierunekPlanu(p) === 'wpływ';
-    const ts = terminy(p, koniec);
-    ts.forEach((d, i) => {
+    terminy(p, koniec).forEach((d, i) => {
       const kw = i === 0 ? kwotaPlanu(p) : Number(p.kwota) || 0;
       if (w !== 'PLN') { b.obce[w] = zaokr((b.obce[w] || 0) + (wplyw ? kw : -kw)); return; }
       if (d < dzis) { b.nZal++; if (wplyw) b.zalWpl += kw; else b.zalWyd += kw; }
@@ -146,20 +168,43 @@ function bilans() {
   return b;
 }
 
+function panelFiltrow() {
+  const grupa = (nazwa, tytul, opcje, wybrane) => `<fieldset class="grupa-filtru"><legend>${esc(tytul)}</legend><div class="chipy male">${opcje.map(([v, e, kolor]) =>
+    `<button type="button" class="chip ${kolor ? 'konto-chip' : ''}" ${kolor ? `style="--k:${esc(kolor)}"` : ''} data-akcja="f-${nazwa}" data-v="${esc(v)}" aria-pressed="${wybrane.has(v)}">${esc(e)}</button>`).join('')}</div></fieldset>`;
+  return `<div class="panel-filtrow">
+    ${grupa('rodzaje', 'Rodzaj', RODZAJE_PLANU, stan.rodzaje)}
+    ${grupa('konta', 'Konta', konta().map(k => [k.nazwa, k.nazwa, k.kolor]), stan.konta)}
+    ${grupa('kategorie', 'Kategorie', [...glowne('wydatek').map(k => [k.nazwa, k.nazwa]), ...glowne('wpływ').map(k => [k.nazwa, k.nazwa + ' (wpływ)'])], stan.kategorie)}
+    ${grupa('podmioty', 'Dotyczy', podmioty().map(p => [p, p === 'wspólne' ? 'Wspólne' : p]), stan.podmioty)}
+    <div class="przyciski"><button type="button" class="drugorzedny" data-akcja="wyczysc">Wyczyść filtry</button>
+      <button type="button" data-akcja="panel">Gotowe</button></div>
+  </div>`;
+}
+
 export function renderPlanowane() {
   const dzis = dataLok();
-  const b = bilans();
-  const saldo = b.wplywy - b.wydatki;
+  const koniec = koniecOkresu();
+  const filtrowane = poFiltrach();
+  const b = bilans(filtrowane);
+  const wplywyRazem = b.wplywy + b.zalWpl;
+  const wydatkiRazem = b.wydatki + b.zalWyd;
+  const saldo = wplywyRazem - wydatkiRazem;
   const q = stan.szukaj.trim().toLowerCase();
-  const wszystkie = aktywnePlanowane()
+  const wszystkie = filtrowane
+    .filter(p => p.nastepna_data <= koniec)
     .filter(p => stan.zakladka === 'wszystko' || (stan.zakladka === 'zalegle' ? p.nastepna_data < dzis : p.nastepna_data >= dzis))
     .filter(p => !q || [p.nazwa, p.kontrahent, p.kategoria, p.zrodlo_przychodu, p.konto, p.opis].some(x => String(x || '').toLowerCase().includes(q)))
     .sort((a, b2) => String(a.nastepna_data).localeCompare(String(b2.nastepna_data)) || String(a.nazwa).localeCompare(String(b2.nazwa), 'pl'));
+  const poOkresie = filtrowane.filter(p => p.nastepna_data > koniec).length;
   const dni = new Map();
   wszystkie.forEach(p => { if (!dni.has(p.nastepna_data)) dni.set(p.nastepna_data, []); dni.get(p.nastepna_data).push(p); });
   const rozliczone = dane.transakcje.filter(t => t.planowana_id && t.status !== 'anulowana' && t.data_operacji >= dodajDni(dzis, -31))
     .sort((a, b2) => String(b2.data_operacji).localeCompare(String(a.data_operacji)) || String(b2.utworzono || '').localeCompare(String(a.utworzono || '')));
   const obce = Object.entries(b.obce).filter(([, v]) => Math.abs(v) >= 0.005);
+  const nFiltrow = liczbaFiltrow();
+  const opisOkresu = stan.okres === 'wszystko'
+    ? `Bilans: zaległe i najbliższe 12 miesięcy`
+    : `Bilans: zaległe i terminy od dziś do ${dataSlownie(koniec).toLowerCase()}`;
 
   $('#widok').innerHTML = `
   <section class="ekran planowane">
@@ -167,26 +212,29 @@ export function renderPlanowane() {
       <h1>Planowane</h1>
       <a class="przycisk" href="#dodaj/plan">Zaplanuj płatność</a>
     </div>
-    <div class="chipy male okresy" role="group" aria-label="Okres bilansu">${OKRESY.map(([o, e]) =>
+    <div class="chipy male okresy" role="group" aria-label="Okres">${OKRESY.map(([o, e]) =>
       `<button type="button" class="chip" data-akcja="okres" data-v="${o}" aria-pressed="${stan.okres === o}">${e}</button>`).join('')}</div>
     <dl class="podsumowanie cztery">
-      <div class="plus"><dt>Planowane wpływy</dt><dd>${esc(kwotaTxt(b.wplywy))}</dd></div>
-      <div class="minus"><dt>Planowane wydatki</dt><dd>${esc(kwotaTxt(b.wydatki))}</dd></div>
+      <div class="plus"><dt>Wpływy</dt><dd>${esc(kwotaTxt(wplywyRazem))}</dd></div>
+      <div class="minus"><dt>Wydatki</dt><dd>${esc(kwotaTxt(wydatkiRazem))}</dd></div>
       <div class="${saldo < 0 ? 'minus' : 'plus'} wyroznione"><dt>Bilans</dt><dd>${saldo > 0 ? '+' : ''}${esc(kwotaTxt(saldo))}</dd></div>
-      <div class="${b.nZal ? 'minus' : ''}"><dt>Zaległe (${b.nZal})</dt><dd>${esc(kwotaTxt(b.zalWpl - b.zalWyd))}</dd></div>
+      <div class="${b.nZal ? 'minus' : ''}"><dt>W tym zaległe (${b.nZal})</dt><dd>${esc(kwotaTxt(b.zalWpl - b.zalWyd))}</dd></div>
     </dl>
-    <p class="uwagi-podsumowania">Od dziś do ${esc(dataSlownie(koniecOkresu()).toLowerCase())}, z ratami pożyczek. Pozycje cykliczne średnio miesięcznie: ${b.srednio > 0 ? '+' : ''}${esc(kwotaTxt(zaokr(b.srednio)))}.${obce.length ? ` W innych walutach: ${obce.map(([w, v]) => (v > 0 ? '+' : '') + esc(kwotaTxt(v, w))).join(', ')}.` : ''}${b.nZal ? ` Zaległe: wpływy ${esc(kwotaTxt(b.zalWpl))}, wydatki ${esc(kwotaTxt(b.zalWyd))}.` : ''}</p>
-    <div class="filtry dwa">
+    <p class="uwagi-podsumowania">${esc(opisOkresu)}, z ratami pożyczek${nFiltrow ? ', według filtrów' : ''}.${b.nZal ? ` Zaległe wpływy ${esc(kwotaTxt(b.zalWpl))}, zaległe wydatki ${esc(kwotaTxt(b.zalWyd))}.` : ''} Pozycje cykliczne średnio miesięcznie: ${b.srednio > 0 ? '+' : ''}${esc(kwotaTxt(zaokr(b.srednio)))}.${obce.length ? ` W innych walutach: ${obce.map(([w, v]) => (v > 0 ? '+' : '') + esc(kwotaTxt(v, w))).join(', ')}.` : ''}</p>
+    <div class="filtry trzy">
       <div class="zakladki-ekranu" role="tablist">${[['wszystko', 'Wszystko'], ['nadchodzace', 'Nadchodzące'], ['zalegle', 'Zaległe']].map(([z, e]) =>
         `<button type="button" role="tab" data-akcja="zakladka" data-v="${z}" aria-selected="${stan.zakladka === z}">${e}</button>`).join('')}</div>
       <input type="search" name="szukaj" value="${esc(stan.szukaj)}" placeholder="Szukaj" aria-label="Szukaj w planowanych">
+      <button type="button" class="drugorzedny przycisk-ikona" data-akcja="panel" aria-expanded="${stan.panel}">${ikonaSvg('filtr')} Filtry${nFiltrow ? ` <span class="licznik">${nFiltrow}</span>` : ''}</button>
     </div>
+    ${stan.panel ? panelFiltrow() : ''}
     ${dni.size ? [...dni.entries()].map(([d, lst]) => `
       <section class="dzien ${d < dzis ? 'po-terminie' : ''}">
         <h2>${esc(dataSlownie(d))} <span>${esc(relatywnie(d))}</span></h2>
         <ul>${lst.map(wierszPlanu).join('')}</ul>
       </section>`).join('') : `
-      <div class="pusto-duze"><p>${aktywnePlanowane().length ? 'Nic tu nie pasuje.' : 'Nie masz jeszcze nic zaplanowanego. Przy wpisie wybierz „Nadchodząca” albo „Powtarzalna”, np. dla czynszu, ZUS czy abonamentu.'}</p></div>`}
+      <div class="pusto-duze"><p>${aktywnePlanowane().length ? 'W tym okresie nic nie pasuje.' : 'Nie masz jeszcze nic zaplanowanego. Przy wpisie wybierz „Nadchodząca” albo „Powtarzalna”, np. dla czynszu, ZUS czy abonamentu.'}</p></div>`}
+    ${poOkresie && stan.okres !== 'wszystko' ? `<p class="uwagi-podsumowania">Później niż ${esc(dataSlownie(koniec).toLowerCase())}: ${poOkresie} ${odmiana(poOkresie, 'pozycja', 'pozycje', 'pozycji')}. <button type="button" class="link" data-akcja="okres" data-v="wszystko">Pokaż wszystkie</button></p>` : ''}
     ${rozliczone.length && stan.zakladka !== 'zalegle' ? `<section class="dzien rozliczone">
       <h2>Rozliczone w ostatnim miesiącu</h2>
       <ul>${rozliczone.map(wierszRozliczonej).join('')}</ul>
@@ -332,8 +380,12 @@ export const ekranPlanowane = {
     if (await klikWspolny(e, renderPlanowane)) return;
     const b = e.target.closest('[data-akcja]');
     if (!b) return;
-    if (b.dataset.akcja === 'okres') stan.okres = b.dataset.v;
-    else if (b.dataset.akcja === 'zakladka') stan.zakladka = b.dataset.v;
+    const { akcja, v } = b.dataset;
+    if (akcja === 'okres') stan.okres = v;
+    else if (akcja === 'zakladka') stan.zakladka = v;
+    else if (akcja === 'panel') stan.panel = !stan.panel;
+    else if (akcja === 'wyczysc') ['rodzaje', 'konta', 'kategorie', 'podmioty'].forEach(k => stan[k].clear());
+    else if (akcja.startsWith('f-')) { const z = stan[akcja.slice(2)]; if (z.has(v)) z.delete(v); else z.add(v); }
     else return;
     bezSkoku(renderPlanowane);
   },
