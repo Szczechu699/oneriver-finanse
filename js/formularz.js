@@ -1,28 +1,32 @@
-// Ekran „Dodaj”: wpis transakcji na wzór Cashew, także edycja transakcji i pozycji planowanych.
+// Ekran „Dodaj”: wpis transakcji na wzór Cashew, także edycja transakcji i pozycji planowanych oraz nowe pożyczki.
 
 import * as sync from './sync.js';
 import { wywolaj } from './api.js';
 import {
-  $, esc, zaokr, fmt2, fmt4, symbol, kwotaTxt, dataLok, dodajDni, roznicaDni, dataSlownie, uuid,
-  liczba, liczbaNaTekst, toast, okno, bezSkoku, nazwaMiesiaca,
+  $, esc, zaokr, fmt2, fmt4, symbol, kwotaTxt, dataLok, dodajDni, przesunDate, roznicaDni, dataSlownie, dataKrotko, uuid,
+  liczba, liczbaNaTekst, toast, okno, bezSkoku, nazwaMiesiaca, odmiana,
 } from './util.js';
 import {
-  dane, wczytajDane, atrybuty, lista, konta, walutaKonta, waluty, glowne, podrzedne, podmioty, ikona, KOLORY,
-  kierunek, grupy, grupaDla, zalaczniki, WYMIANA, RYTMY, budzetyDoWyboru, aktywneBudzety, stanBudzetu, kategorieBudzetu,
+  dane, wczytajDane, atrybuty, lista, konta, walutaKonta, kolorKonta, waluty, glowne, podrzedne, podmioty, ikona, KOLORY,
+  kierunek, grupy, grupaDla, zalaczniki, WYMIANA, RYTMY, formaRytmu, budzetyDoWyboru, aktywneBudzety, aktywneCele,
+  stanBudzetu, kategorieBudzetu, podpowiedziTytulu, RODZAJE_POZYCZEK, harmonogram,
 } from './dane.js';
+import { zapiszPozyczke } from './pozyczki.js';
 
 let f = null;
+let podpowiedzi = [];
 const MAKS_MB = 15;
 
 function pamiec() {
   try { return JSON.parse(localStorage.getItem('or-finanse-ostatnie')) || {}; } catch { return {}; }
 }
 function zapamietaj(zmiana) {
-  localStorage.setItem('or-finanse-ostatnie', JSON.stringify({ ...pamiec(), ...zmiana }));
+  try { localStorage.setItem('or-finanse-ostatnie', JSON.stringify({ ...pamiec(), ...zmiana })); } catch { /* bez znaczenia */ }
 }
 
 function nowyFormularz(zostaw = {}) {
   const pam = pamiec();
+  const dzis = dataLok();
   return {
     tryb: 'nowy', planId: null, rodzajWpisu: 'zwykła', oryginaly: [], planOryginal: null,
     typ: zostaw.typ || 'wydatek',
@@ -31,10 +35,14 @@ function nowyFormularz(zostaw = {}) {
     konto_docelowe: '', kwota_do: '',
     kategoria: '', podkategoria: '', podzial: null, podzialId: null,
     kontrahent: '', podmiot: zostaw.podmiot ?? pam.podmiot ?? '',
-    tagi: '', data: zostaw.data || dataLok(),
-    nr_dokumentu: '', opis: '', budzet: '',
+    tagi: '', data: zostaw.data || dzis,
+    nr_dokumentu: '', opis: '', budzet: '', cel: '',
     zalaczniki: [],
     powtarzanie: 'miesiąc', co_ile: '1', data_koniec: '', subskrypcja: false,
+    pozyczka: {
+      rodzaj: 'udzielona', zwrot: 'jednorazowo', termin: dodajDni(dzis, 30), liczba_rat: '3', co_ile: '1',
+      powtarzanie: 'miesiąc', pierwsza_rata: przesunDate(dzis, 'miesiąc', 1), konto_splat: '',
+    },
     podpowiedz: '', nbp: {},
   };
 }
@@ -53,7 +61,7 @@ function formularzZGrupy(g) {
   if (g.rodzaj === 'przeksiegowanie' || g.rodzaj === 'wymiana') {
     return {
       ...nf, ...wspolne, typ: g.rodzaj === 'wymiana' ? 'wymiana' : 'przeksięgowanie', oryginaly: g.czesci,
-      kwota: liczbaNaTekst(g.z.kwota), waluta: g.z.waluta, konto: g.z.konto,
+      kwota: liczbaNaTekst(g.z.kwota), waluta: g.z.waluta, konto: g.z.konto, cel: g.na?.cel || '',
       konto_docelowe: g.na?.konto || '', kwota_do: g.na && g.na.waluta !== g.z.waluta ? liczbaNaTekst(g.na.kwota) : '',
     };
   }
@@ -65,7 +73,7 @@ function formularzZGrupy(g) {
     kategoria: g.rodzaj === 'podzial' ? '' : kat(t), podkategoria: g.rodzaj === 'podzial' ? '' : (t.podkategoria || ''),
     podzial: g.rodzaj === 'podzial' ? g.czesci.map(c => ({ kategoria: kat(c), podkategoria: c.podkategoria || '', kwota: liczbaNaTekst(c.kwota) })) : null,
     podzialId: t.podzial_id || null,
-    kontrahent: t.kontrahent || '', podmiot: t.podmiot || '', budzet: t.budzet || '',
+    kontrahent: t.kontrahent || '', podmiot: t.podmiot || '', budzet: t.budzet || '', cel: t.cel || '',
   };
 }
 
@@ -94,6 +102,8 @@ const walutaFormularza = () => walutaKonta(f.konto) || f.waluta || 'PLN';
 const walutaDocelowa = () => walutaKonta(f.konto_docelowe) || (f.typ === 'wymiana' ? '' : walutaFormularza());
 const czyPlan = () => f.rodzajWpisu !== 'zwykła';
 const czyMiedzyKontami = () => f.typ === 'przeksięgowanie' || f.typ === 'wymiana';
+const czyPozyczka = () => f.typ === 'pożyczka';
+const zakupZaMnie = () => czyPozyczka() && f.pozyczka.rodzaj === 'zakup-za-mnie';
 
 export function klawisz(k) {
   if (!f || !$('.dodaj')) return;
@@ -125,22 +135,23 @@ function odswiezKwote() {
   if (btn) btn.innerHTML = etykietaZapisu();
   odswiezReszte();
   odswiezKursWymiany();
+  odswiezHarmonogram();
 }
 
 function etykietaZapisu() {
   const s = liczba(f.kwota);
   let tekst;
   if (f.tryb === 'edycja') tekst = 'Zapisz zmiany';
-  else if (czyPlan()) tekst = f.typ === 'wpływ' ? 'Zaplanuj wpływ' : 'Zaplanuj wydatek';
+  else if (czyPozyczka()) tekst = 'Zapisz pożyczkę';
+  else if (czyPlan()) tekst = f.subskrypcja ? 'Dodaj subskrypcję' : (f.typ === 'wpływ' ? 'Zaplanuj wpływ' : 'Zaplanuj wydatek');
   else tekst = { wydatek: 'Zapisz wydatek', 'wpływ': 'Zapisz wpływ', 'przeksięgowanie': 'Zapisz przeksięgowanie', wymiana: 'Zapisz wymianę' }[f.typ];
   return `${esc(tekst)}${s > 0 ? ` <span>${esc(kwotaTxt(s, walutaFormularza()))}</span>` : ''}`;
 }
 
 // ── podział na kategorie ──
 
-function sumaPodzialu() {
-  return zaokr((f.podzial || []).reduce((s, c) => s + liczba(c.kwota), 0));
-}
+const sumaPodzialu = () => zaokr((f.podzial || []).reduce((s, c) => s + liczba(c.kwota), 0));
+
 function odswiezReszte() {
   const el = $('.reszta');
   if (!el || !f.podzial) return;
@@ -210,24 +221,122 @@ function odswiezKursWymiany() {
   el.textContent = tekst;
 }
 
+// ── pożyczka ──
+
+function odswiezHarmonogram() {
+  const el = $('.podglad-rat');
+  if (!el || !czyPozyczka()) return;
+  const kwota = zaokr(liczba(f.kwota));
+  const p = f.pozyczka;
+  if (!(kwota > 0)) { el.innerHTML = '<p class="pusto">Wpisz kwotę, a pokażę raty.</p>'; return; }
+  const raty = harmonogram(kwota, Number(p.liczba_rat) || 1, p.pierwsza_rata || dataLok(), p.powtarzanie, Number(p.co_ile) || 1);
+  const w = walutaFormularza();
+  const rowne = raty.every(r => Math.abs(r.kwota - raty[0].kwota) < 0.005);
+  el.innerHTML = `<p>${raty.length} ${odmiana(raty.length, 'rata', 'raty', 'rat')} ${rowne ? 'po ' + esc(kwotaTxt(raty[0].kwota, w)) : `po ${esc(kwotaTxt(raty[0].kwota, w))}, ostatnia ${esc(kwotaTxt(raty[raty.length - 1].kwota, w))}`}:</p>
+    <ol>${raty.slice(0, 8).map(r => `<li><span>${esc(dataKrotko(r.data))}${r.data.slice(0, 4) !== dataLok().slice(0, 4) ? ' ' + r.data.slice(0, 4) : ''}</span><b>${esc(kwotaTxt(r.kwota, w))}</b></li>`).join('')}
+    ${raty.length > 8 ? `<li class="wiecej-rat">i ${raty.length - 8} kolejnych, ostatnia ${esc(dataKrotko(raty[raty.length - 1].data))} ${raty[raty.length - 1].data.slice(0, 4)}</li>` : ''}</ol>`;
+}
+
+function osoby() {
+  const s = new Set();
+  dane.pozyczki.forEach(p => p.osoba && s.add(p.osoba));
+  dane.transakcje.forEach(t => t.kontrahent && s.add(t.kontrahent));
+  return [...s].slice(0, 300);
+}
+
+function htmlPozyczki() {
+  const p = f.pozyczka;
+  const r = RODZAJE_POZYCZEK[p.rodzaj];
+  const zakup = p.rodzaj === 'zakup-za-mnie';
+  const plus = p.rodzaj === 'udzielona';
+  const n = Number(p.co_ile) || 1;
+  return `
+    <fieldset class="pole">
+      <legend>Rodzaj pożyczki</legend>
+      <div class="chipy">${Object.entries(RODZAJE_POZYCZEK).map(([k, v]) => `
+        <button type="button" class="chip" data-akcja="p-rodzaj" data-v="${k}" aria-pressed="${p.rodzaj === k}">${esc(v.etykieta)}</button>`).join('')}</div>
+      <span class="podpowiedz">${{
+        udzielona: 'Pieniądze wychodzą z Twojego konta. Zwrot pojawi się w planowanych na szaro-zielono.',
+        otrzymana: 'Pieniądze wpływają na Twoje konto. Spłata pojawi się w planowanych na szaro-różowo.',
+        'zakup-za-mnie': 'Bez ruchu na koncie. Liczy się jako wydatek w wybranej kategorii, a oddanie pieniędzy pojawi się w planowanych.',
+      }[p.rodzaj]}</span>
+    </fieldset>
+
+    <label class="pole">
+      <span class="etykieta">${esc(r.osoba)}</span>
+      <input name="kontrahent" list="lista-osob" autocomplete="off" value="${esc(f.kontrahent)}" placeholder="imię i nazwisko albo firma">
+      <datalist id="lista-osob">${osoby().map(o => `<option value="${esc(o)}">`).join('')}</datalist>
+    </label>
+
+    ${zakup ? `<fieldset class="pole"><legend>Za co zapłacił (kategoria)</legend>
+      ${siatkaKategorii('wydatek')}
+      ${podrzedne('wydatek', f.kategoria).length ? `<div class="chipy male podkategorie">${podrzedne('wydatek', f.kategoria).map(x => `
+        <button type="button" class="chip" data-akcja="podkategoria" data-v="${esc(x.nazwa)}" aria-pressed="${x.nazwa === f.podkategoria}">${esc(x.nazwa)}</button>`).join('')}</div>` : ''}
+    </fieldset>` : `<fieldset class="pole">
+      <legend>${plus ? 'Z konta' : 'Na konto'}</legend>
+      ${przyciskiKont('konto', f.konto)}
+      ${walutyKonta()}
+    </fieldset>`}
+
+    <fieldset class="pole">
+      <legend>Data ${plus ? 'pożyczki' : zakup ? 'zakupu' : 'otrzymania'}</legend>
+      <div class="data"><input type="date" name="data" value="${esc(f.data)}">
+        <button type="button" class="chip" data-akcja="data" data-v="0" aria-pressed="${f.data === dataLok()}">Dziś</button></div>
+    </fieldset>
+
+    <fieldset class="pole">
+      <legend>${plus ? 'Zwrot' : 'Spłata'}</legend>
+      <div class="chipy">${[['jednorazowo', 'Jednorazowo'], ['raty', 'W ratach'], ['bez-terminu', 'Bez terminu']].map(([k, e]) => `
+        <button type="button" class="chip" data-akcja="p-zwrot" data-v="${k}" aria-pressed="${p.zwrot === k}">${e}</button>`).join('')}</div>
+    </fieldset>
+    ${p.zwrot === 'jednorazowo' ? `<label class="pole"><span class="etykieta">Termin ${plus ? 'zwrotu' : 'spłaty'}</span>
+      <input type="date" name="p-termin" value="${esc(p.termin)}" min="${esc(f.data)}"></label>` : ''}
+    ${p.zwrot === 'raty' ? `<div class="rzad trzy">
+      <label class="pole"><span class="etykieta">Liczba rat</span>
+        <input name="p-liczba_rat" type="number" min="1" max="120" inputmode="numeric" value="${esc(p.liczba_rat)}"></label>
+      <label class="pole"><span class="etykieta">Co ile</span>
+        <span class="co-ile"><input name="p-co_ile" type="number" min="1" max="24" inputmode="numeric" value="${esc(p.co_ile)}" aria-label="Ile">
+        <select name="p-powtarzanie" aria-label="Jednostka">${Object.keys(RYTMY).map(x => `<option value="${x}" ${p.powtarzanie === x ? 'selected' : ''}>${formaRytmu(x, n)}</option>`).join('')}</select></span></label>
+      <label class="pole"><span class="etykieta">Pierwsza rata</span>
+        <input type="date" name="p-pierwsza_rata" value="${esc(p.pierwsza_rata)}" min="${esc(f.data)}"></label>
+    </div>
+    <div class="podglad-rat" aria-live="polite"></div>` : ''}
+    ${p.zwrot !== 'bez-terminu' ? `<fieldset class="pole">
+      <legend>${plus ? 'Zwrot wpłynie na konto' : 'Spłacę z konta'}</legend>
+      ${przyciskiKont('p-konto_splat', p.konto_splat || f.konto)}
+    </fieldset>` : ''}
+
+    <fieldset class="pole">
+      <legend>Dotyczy</legend>
+      <div class="chipy">${podmioty().map(x => `
+        <button type="button" class="chip" data-akcja="podmiot" data-v="${esc(x)}" aria-pressed="${f.podmiot === x}">${esc(x === 'wspólne' ? 'Wspólne' : x)}</button>`).join('')}</div>
+    </fieldset>`;
+}
+
 // ── fragmenty ekranu ──
 
 function przyciskiKont(pole, wybrane, filtr = () => true) {
   const l = konta().filter(filtr);
-  if (!konta().length) return `<p class="pusto">Brak kont. Zsynchronizuj aplikację z arkuszem w Ustawieniach.</p>`;
+  if (!konta().length) return `<p class="pusto">Brak kont. Dodaj je w „Edytuj dane”.</p>`;
   if (!l.length) return `<p class="pusto">Brak kont w innej walucie.</p>`;
   return `<div class="chipy">${l.map(k => `
-      <button type="button" class="chip" data-akcja="${pole}" data-v="${esc(k.nazwa)}" aria-pressed="${k.nazwa === wybrane}">
+      <button type="button" class="chip konto-chip" style="--k:${esc(k.kolor)}" data-akcja="${pole}" data-v="${esc(k.nazwa)}" aria-pressed="${k.nazwa === wybrane}">
         ${esc(k.nazwa)}</button>`).join('')}</div>`;
 }
 
-function siatkaKategorii() {
-  const l = glowne(f.typ);
-  if (!l.length) return `<p class="pusto">Brak pozycji w Słowniku.</p>`;
+function walutyKonta() {
+  if (!f.konto || walutaKonta(f.konto)) return '';
+  return `<div class="chipy male" role="group" aria-label="Waluta">${waluty().map(w => `
+    <button type="button" class="chip" data-akcja="waluta" data-v="${w}" aria-pressed="${walutaFormularza() === w}">${w}</button>`).join('')}</div>`;
+}
+
+function siatkaKategorii(typ = f.typ) {
+  const l = glowne(typ);
+  if (!l.length) return `<p class="pusto">Brak kategorii. Dodaj je w „Edytuj dane”.</p>`;
   return `<div class="siatka">${l.map((k, i) => `
       <button type="button" class="kafel" data-akcja="kategoria" data-v="${esc(k.nazwa)}" aria-pressed="${k.nazwa === f.kategoria}"
-        style="--tlo:${esc(atrybuty(k).kolor || KOLORY[i % KOLORY.length])}">
-        <span class="ikona" aria-hidden="true">${esc(atrybuty(k).ikona || ikona(k.nazwa, f.typ))}</span>
+        style="--tlo:${esc(atrybuty(k).kolor || KOLORY[i % 10])}">
+        <span class="ikona" aria-hidden="true">${esc(atrybuty(k).ikona || ikona(k.nazwa, typ))}</span>
         <span class="nazwa">${esc(k.nazwa)}</span>
       </button>`).join('')}</div>`;
 }
@@ -263,24 +372,50 @@ function htmlZalacznikow() {
 }
 
 function htmlPlanu() {
-  if (f.rodzajWpisu === 'zwykła') return '';
-  if (f.rodzajWpisu === 'nadchodząca') return '';
+  if (f.rodzajWpisu !== 'powtarzalna') return '';
+  const n = Number(f.co_ile) || 1;
   return `<div class="plan">
     <div class="rzad">
       <label class="pole"><span class="etykieta">Powtarzaj co</span>
         <span class="co-ile">
           <input name="co_ile" type="number" min="1" max="99" inputmode="numeric" value="${esc(f.co_ile)}" aria-label="Ile">
-          <select name="powtarzanie" aria-label="Jednostka">${Object.keys(RYTMY).map(r => {
-            const n = Number(f.co_ile) || 1;
-            const forma = n === 1 ? RYTMY[r][0] : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? RYTMY[r][1] : RYTMY[r][2]);
-            return `<option value="${r}" ${f.powtarzanie === r ? 'selected' : ''}>${forma}</option>`;
-          }).join('')}</select>
+          <select name="powtarzanie" aria-label="Jednostka">${Object.keys(RYTMY).map(r =>
+            `<option value="${r}" ${f.powtarzanie === r ? 'selected' : ''}>${formaRytmu(r, n)}</option>`).join('')}</select>
         </span></label>
       <label class="pole"><span class="etykieta">Do kiedy (puste = bez końca)</span>
         <input name="data_koniec" type="date" value="${esc(f.data_koniec)}" min="${esc(f.data)}"></label>
     </div>
     <label class="przelacznik duzy"><input type="checkbox" name="subskrypcja" ${f.subskrypcja ? 'checked' : ''}> To subskrypcja lub abonament</label>
   </div>`;
+}
+
+function htmlBudzetuICelu(miedzy) {
+  const budzety = miedzy ? [] : budzetyDoWyboru(f.data);
+  const wybrany = f.budzet && dane.budzety.find(b => b.id === f.budzet);
+  if (wybrany && !budzety.includes(wybrany)) budzety.push(wybrany);
+  const cele = aktywneCele();
+  const wybranyCel = f.cel && dane.budzety.find(b => b.id === f.cel);
+  if (wybranyCel && !cele.includes(wybranyCel)) cele.push(wybranyCel);
+  return `${budzety.length ? `<fieldset class="pole">
+      <legend>Budżet</legend>
+      <div class="chipy">
+        <button type="button" class="chip" data-akcja="budzet" data-v="" aria-pressed="${!f.budzet}">Bez budżetu</button>
+        ${budzety.map(b => `<button type="button" class="chip" data-akcja="budzet" data-v="${esc(b.id)}" aria-pressed="${f.budzet === b.id}">${esc(b.nazwa)}</button>`).join('')}
+      </div>
+    </fieldset>` : ''}
+    ${cele.length && !czyPlan() ? `<fieldset class="pole">
+      <legend>Cel</legend>
+      <div class="chipy">
+        <button type="button" class="chip" data-akcja="cel" data-v="" aria-pressed="${!f.cel}">Bez celu</button>
+        ${cele.map(b => `<button type="button" class="chip" data-akcja="cel" data-v="${esc(b.id)}" aria-pressed="${f.cel === b.id}">${esc(b.nazwa)}</button>`).join('')}
+      </div>
+    </fieldset>` : ''}`;
+}
+
+function htmlPodpowiedzi() {
+  if (!podpowiedzi.length) return '';
+  return podpowiedzi.map((p, i) => `<button type="button" class="chip podpowiedz-tytulu" data-akcja="tytul" data-v="${i}">
+    <b>${esc(p.tytul)}</b> <span>${esc(p.kategoria)}${p.podkategoria ? ' › ' + esc(p.podkategoria) : ''}</span></button>`).join('');
 }
 
 // ── ekran ──
@@ -298,36 +433,39 @@ export function renderDodaj(trasa = null, id = null) {
       if (!p) return brak('Nie ma takiej pozycji planowanej', 'Mogła zostać usunięta z arkusza.', '#planowane', 'Planowane');
       f = formularzZPlanu(p);
     }
-  } else if (trasa === 'nowy-plan') {
-    if (!f || f.tryb === 'edycja' || f.rodzajWpisu === 'zwykła') {
+  } else if (trasa === 'nowy-plan' || trasa === 'nowa-sub') {
+    if (!f || f.tryb === 'edycja' || f.rodzajWpisu === 'zwykła' || (trasa === 'nowa-sub') !== f.subskrypcja) {
       f = nowyFormularz();
-      f.rodzajWpisu = 'nadchodząca';
+      f.rodzajWpisu = trasa === 'nowa-sub' ? 'powtarzalna' : 'nadchodząca';
+      f.subskrypcja = trasa === 'nowa-sub';
     }
+  } else if (trasa === 'nowa-pozyczka') {
+    if (!f || f.tryb === 'edycja' || f.typ !== 'pożyczka') { f = nowyFormularz(); f.typ = 'pożyczka'; }
   } else if (!f || f.tryb === 'edycja') {
     f = nowyFormularz();
   }
   if (!f.konto && konta().length) f.konto = konta()[0].nazwa;
-  if (czyMiedzyKontami() || f.podzial) f.rodzajWpisu = f.planId ? f.rodzajWpisu : 'zwykła';
+  if (czyMiedzyKontami() || f.podzial || czyPozyczka()) f.rodzajWpisu = f.planId ? f.rodzajWpisu : 'zwykła';
+  podpowiedzi = [];
 
   const miedzy = czyMiedzyKontami();
+  const pozyczka = czyPozyczka();
   const wymiana = f.typ === 'wymiana';
   const plan = czyPlan();
-  const kontoBezWaluty = f.konto && !walutaKonta(f.konto);
   const potrzebnaDruga = miedzy && f.konto_docelowe && walutaDocelowa() !== walutaFormularza();
-  const pod = miedzy || f.podzial ? [] : podrzedne(f.typ, f.kategoria);
+  const pod = miedzy || f.podzial || pozyczka ? [] : podrzedne(f.typ, f.kategoria);
   const anulowana = f.planId ? f.planOryginal?.status === 'anulowana' : f.oryginaly.length && f.oryginaly.every(o => o.status === 'anulowana');
   const potwierdzona = f.oryginaly.some(o => o.status === 'potwierdzona');
-  const budzety = budzetyDoWyboru(f.data);
-  const wybranyBudzet = f.budzet && dane.budzety.find(b => b.id === f.budzet);
-  if (wybranyBudzet && !budzety.includes(wybranyBudzet)) budzety.push(wybranyBudzet);
-  const klasaTypu = { wydatek: 'wydatek', 'wpływ': 'wplyw', 'przeksięgowanie': 'przeks', wymiana: 'wymiana' }[f.typ];
+  const klasaTypu = pozyczka
+    ? (f.pozyczka.rodzaj === 'udzielona' ? 'pozyczka-plus' : 'pozyczka-minus')
+    : { wydatek: 'wydatek', 'wpływ': 'wplyw', 'przeksięgowanie': 'przeks', wymiana: 'wymiana' }[f.typ];
 
   $('#widok').innerHTML = `
-  <section class="dodaj typ-${klasaTypu}">
+  <section class="ekran dodaj typ-${klasaTypu}">
     <div class="kolumna-kwoty">
       <div class="panel-kwoty">
         <div class="typy" role="group" aria-label="Rodzaj transakcji">
-          ${[['wydatek', 'Wydatek'], ['wpływ', 'Wpływ'], ['przeksięgowanie', 'Przeksięgowanie'], ['wymiana', 'Wymiana']].map(([t, e]) => `
+          ${[['wydatek', 'Wydatek'], ['wpływ', 'Wpływ'], ['pożyczka', 'Pożyczka'], ['przeksięgowanie', 'Przeksięgowanie'], ['wymiana', 'Wymiana']].map(([t, e]) => `
             <button type="button" data-akcja="typ" data-v="${t}" aria-pressed="${f.typ === t}" ${f.tryb === 'edycja' ? 'disabled' : ''}>${e}</button>`).join('')}
         </div>
         <div class="kwota" aria-live="polite" aria-label="Kwota">
@@ -347,8 +485,9 @@ export function renderDodaj(trasa = null, id = null) {
     <form class="kolumna-szczegolow" novalidate>
       ${f.tryb === 'edycja' ? `<div class="pasek-edycji">
           <span>${f.planId ? 'Edytujesz pozycję planowaną' : 'Edytujesz transakcję'}${anulowana ? ' (anulowaną)' : ''}${potwierdzona ? '. Jest już potwierdzona wyciągiem' : ''}.</span>
-          <a href="${f.planId ? '#planowane' : '#lista'}">Wróć do listy</a></div>` : ''}
+          <a href="${f.planId ? (f.subskrypcja ? '#subskrypcje' : '#planowane') : '#lista'}">Wróć do listy</a></div>` : ''}
 
+      ${pozyczka ? htmlPozyczki() : `
       ${!miedzy && !f.podzial && (f.tryb === 'nowy' || f.planId) ? `
       <fieldset class="pole">
         <legend>Rodzaj wpisu</legend>
@@ -363,8 +502,7 @@ export function renderDodaj(trasa = null, id = null) {
       <fieldset class="pole">
         <legend>${miedzy ? 'Z konta' : 'Konto'}</legend>
         ${przyciskiKont('konto', f.konto)}
-        ${kontoBezWaluty ? `<div class="chipy male" role="group" aria-label="Waluta">${waluty().map(w => `
-          <button type="button" class="chip" data-akcja="waluta" data-v="${w}" aria-pressed="${walutaFormularza() === w}">${w}</button>`).join('')}</div>` : ''}
+        ${walutyKonta()}
       </fieldset>
 
       ${miedzy ? `
@@ -377,6 +515,13 @@ export function renderDodaj(trasa = null, id = null) {
         <input name="kwota_do" inputmode="decimal" autocomplete="off" value="${esc(f.kwota_do)}" placeholder="np. 230,45">
         ${wymiana ? '<span class="podpowiedz kurs-wymiany" aria-live="polite"></span>' : ''}
       </label>` : ''}` : `
+      <label class="pole pole-tytulu">
+        <span class="etykieta">Tytuł lub kontrahent</span>
+        <input name="kontrahent" autocomplete="off" value="${esc(f.kontrahent)}" placeholder="np. Allegro, InPost, ZUS">
+        <span class="podpowiedzi-tytulu chipy male" aria-live="polite"></span>
+        <span class="podpowiedz" aria-live="polite">${esc(f.podpowiedz)}</span>
+      </label>
+
       <fieldset class="pole">
         <legend>${f.typ === 'wpływ' ? 'Źródło przychodu' : 'Kategoria'}</legend>
         ${f.podzial ? htmlPodzialu() : `
@@ -404,30 +549,16 @@ export function renderDodaj(trasa = null, id = null) {
       </div>
 
       ${htmlPlanu()}
-
-      ${miedzy ? '' : `<label class="pole">
-        <span class="etykieta">Kontrahent</span>
-        <input name="kontrahent" list="lista-kontrahentow" autocomplete="off" value="${esc(f.kontrahent)}" placeholder="np. Allegro, InPost, imię i nazwisko">
-        <datalist id="lista-kontrahentow">${kontrahenci().map(k => `<option value="${esc(k)}">`).join('')}</datalist>
-        <span class="podpowiedz" aria-live="polite">${esc(f.podpowiedz)}</span>
-      </label>`}
-
-      ${!miedzy && budzety.length ? `<fieldset class="pole">
-        <legend>Budżet</legend>
-        <div class="chipy">
-          <button type="button" class="chip" data-akcja="budzet" data-v="" aria-pressed="${!f.budzet}">Bez budżetu</button>
-          ${budzety.map(b => `<button type="button" class="chip" data-akcja="budzet" data-v="${esc(b.id)}" aria-pressed="${f.budzet === b.id}">${esc(b.nazwa)}</button>`).join('')}
-        </div>
-      </fieldset>` : ''}
+      ${htmlBudzetuICelu(miedzy)}`}
 
       ${plan ? '' : htmlZalacznikow()}
 
       <details class="wiecej" ${f.tagi || f.nr_dokumentu || f.opis ? 'open' : ''}>
         <summary>Opis, numer dokumentu, tagi</summary>
         <label class="pole"><span class="etykieta">Opis</span>
-          <textarea name="opis" rows="2" placeholder="Co to było?">${esc(f.opis)}</textarea></label>
+          <textarea name="opis" rows="2" placeholder="${pozyczka ? 'Na co, warunki, ustalenia' : 'Co to było?'}">${esc(f.opis)}</textarea></label>
         <div class="rzad">
-          ${plan ? '' : `<label class="pole"><span class="etykieta">Numer dokumentu</span>
+          ${plan || pozyczka ? '' : `<label class="pole"><span class="etykieta">Numer dokumentu</span>
             <input name="nr_dokumentu" autocomplete="off" value="${esc(f.nr_dokumentu)}" placeholder="faktura, paragon"></label>`}
           <label class="pole"><span class="etykieta">Tagi, po przecinku</span>
             <input name="tagi" list="lista-tagow" autocomplete="off" value="${esc(f.tagi)}" placeholder="np. Kiermasz Koneser">
@@ -442,30 +573,13 @@ export function renderDodaj(trasa = null, id = null) {
     </form>
   </section>`;
   odswiezKwote();
+  // dotknięcie podpowiedzi nie może zdjąć fokusu z pola tytułu – inaczej zdarzenie „change” przerysuje ekran przed kliknięciem
+  $('.podpowiedzi-tytulu')?.addEventListener('mousedown', e => e.preventDefault());
 }
 
 function brak(tytul, tekst, link, etykieta) {
   $('#widok').innerHTML = `<section class="ekran-wiadomosc"><h1>${esc(tytul)}</h1>
     <p>${esc(tekst)}</p><a class="przycisk" href="${link}">${esc(etykieta)}</a></section>`;
-}
-
-function kontrahenci() {
-  const ost = new Map();
-  dane.transakcje.forEach(t => {
-    const k = String(t.kontrahent || '').trim();
-    if (!k || t.status === 'anulowana') return;
-    const d = t.data_operacji || '';
-    if (!ost.has(k) || ost.get(k) < d) ost.set(k, d);
-  });
-  return [...ost.entries()].sort((a, b) => (a[1] < b[1] ? 1 : -1)).slice(0, 300).map(e => e[0]);
-}
-
-function ostatniDlaKontrahenta(nazwa, typ) {
-  const n = nazwa.trim().toLowerCase();
-  if (!n) return null;
-  return dane.transakcje
-    .filter(t => String(t.kontrahent || '').trim().toLowerCase() === n && t.typ === typ && t.status !== 'anulowana' && !t.podzial_id)
-    .sort((a, b) => String(b.data_operacji).localeCompare(String(a.data_operacji)) || String(b.utworzono || '').localeCompare(String(a.utworzono || '')))[0] || null;
 }
 
 // ── zdarzenia ──
@@ -478,6 +592,10 @@ function zbierzPola() {
     if (el) f[n] = el.value;
   });
   if (form.elements.subskrypcja) f.subskrypcja = form.elements.subskrypcja.checked;
+  ['termin', 'liczba_rat', 'co_ile', 'powtarzanie', 'pierwsza_rata'].forEach(n => {
+    const el = form.elements['p-' + n];
+    if (el) f.pozyczka[n] = el.value;
+  });
 }
 
 const przerysuj = () => bezSkoku(() => renderDodaj(f.tryb === 'edycja' ? (f.planId ? 'plan' : 'edytuj') : null, f.planId || f.oryginaly[0]?.id));
@@ -509,7 +627,15 @@ export function obsluzKlik(e) {
     case 'podkategoria': f.podkategoria = f.podkategoria === v ? '' : v; break;
     case 'podmiot': f.podmiot = f.podmiot === v ? '' : v; break;
     case 'budzet': f.budzet = v; break;
+    case 'cel': f.cel = v; break;
     case 'data': f.data = dodajDni(dataLok(), Number(v)); break;
+    case 'tytul': {
+      const p = podpowiedzi[Number(v)];
+      if (!p) return;
+      f.kontrahent = p.tytul; f.kategoria = p.kategoria; f.podkategoria = p.podkategoria;
+      f.podpowiedz = `Kategoria z ${p.zrodlo === 'tytuł' ? 'zapisanego tytułu' : 'ostatniego wpisu'}: ${p.kategoria}${p.podkategoria ? ', ' + p.podkategoria : ''}.`;
+      break;
+    }
     case 'podziel':
       f.podzial = [{ kategoria: f.kategoria, podkategoria: f.podkategoria, kwota: '' }, { kategoria: '', podkategoria: '', kwota: '' }];
       break;
@@ -524,6 +650,9 @@ export function obsluzKlik(e) {
       f.kategoria = najwieksza?.kategoria || ''; f.podkategoria = najwieksza?.podkategoria || ''; f.podzial = null;
       break;
     }
+    case 'p-rodzaj': f.pozyczka.rodzaj = v; f.kategoria = ''; f.podkategoria = ''; break;
+    case 'p-zwrot': f.pozyczka.zwrot = v; break;
+    case 'p-konto_splat': f.pozyczka.konto_splat = v; break;
     case 'usun-zalacznik': f.zalaczniki.splice(Number(v), 1); break;
     case 'anuluj': anuluj(); return;
     default: return;
@@ -537,6 +666,16 @@ export function obsluzWejscie(e) {
   if (el.name === 'podzial-kwota') { f.podzial[Number(el.dataset.i)].kwota = el.value; odswiezReszte(); }
   else if (el.name === 'kwota_do') { f.kwota_do = el.value; odswiezKursWymiany(); }
   else if (el.name === 'data') f.data = el.value;
+  else if (el.name === 'kontrahent' && !czyPozyczka()) {
+    f.kontrahent = el.value;
+    podpowiedzi = podpowiedziTytulu(el.value, f.typ === 'wpływ' ? 'wpływ' : 'wydatek')
+      .filter(p => !(p.kategoria === f.kategoria && p.podkategoria === f.podkategoria && p.tytul.toLowerCase() === el.value.trim().toLowerCase()));
+    const kont = $('.podpowiedzi-tytulu');
+    if (kont) kont.innerHTML = htmlPodpowiedzi();
+  } else if (el.name && el.name.startsWith('p-')) {
+    zbierzPola();
+    odswiezHarmonogram();
+  }
 }
 
 export async function obsluzZmiane(e) {
@@ -550,13 +689,13 @@ export async function obsluzZmiane(e) {
   } else if (el.dataset.plik) {
     await dodajPliki([...el.files], el.dataset.plik === 'aparat');
     el.value = '';
-  } else if (el.name === 'co_ile' || el.name === 'powtarzanie') {
+  } else if (el.name === 'co_ile' || el.name === 'powtarzanie' || el.name === 'p-powtarzanie' || el.name === 'p-co_ile') {
     zbierzPola();
     przerysuj();
-  } else if (el.name === 'data' && (czyPlan() || budzetyDoWyboru(el.value).length || f.typ === 'wymiana')) {
+  } else if (el.name === 'data' && (czyPlan() || budzetyDoWyboru(el.value).length || f.typ === 'wymiana' || czyPozyczka())) {
     zbierzPola();
     przerysuj();
-  } else if (el.name === 'kontrahent') {
+  } else if (el.name === 'kontrahent' && !czyPozyczka()) {
     kontrahentZmieniony(el.value);
   }
 }
@@ -564,14 +703,14 @@ export async function obsluzZmiane(e) {
 function kontrahentZmieniony(wartosc) {
   f.kontrahent = wartosc;
   if (f.tryb !== 'nowy' || f.kategoria || f.podzial) return;
-  const ost = ostatniDlaKontrahenta(f.kontrahent, f.typ);
-  if (!ost) return;
+  const q = wartosc.trim().toLowerCase();
+  const p = podpowiedziTytulu(wartosc, f.typ === 'wpływ' ? 'wpływ' : 'wydatek')
+    .find(x => x.zrodlo === 'tytuł' || x.tytul.toLowerCase() === q);
+  if (!p) return;
   zbierzPola();
-  f.kategoria = f.typ === 'wpływ' ? ost.zrodlo_przychodu : ost.kategoria;
-  f.podkategoria = ost.podkategoria || '';
-  if (!f.podmiot) f.podmiot = ost.podmiot || '';
-  if (!f.tagi) f.tagi = ost.tagi || '';
-  f.podpowiedz = f.kategoria ? `Podstawiono jak w ostatnim wpisie: ${f.kategoria}${f.podkategoria ? ', ' + f.podkategoria : ''}.` : '';
+  f.kategoria = p.kategoria;
+  f.podkategoria = p.podkategoria;
+  f.podpowiedz = `Kategoria z ${p.zrodlo === 'tytuł' ? 'zapisanego tytułu' : 'ostatniego wpisu'}: ${p.kategoria}${p.podkategoria ? ', ' + p.podkategoria : ''}.`;
   przerysuj();
 }
 
@@ -610,6 +749,16 @@ async function dodajPliki(lista_, zAparatu) {
 
 function blad(kwota) {
   if (!(kwota > 0)) return 'Wpisz kwotę większą od zera.';
+  if (czyPozyczka()) {
+    const p = f.pozyczka;
+    if (!f.kontrahent.trim()) return 'Wpisz, kogo dotyczy pożyczka.';
+    if (zakupZaMnie() && !f.kategoria) return 'Wybierz kategorię zakupu.';
+    if (!zakupZaMnie() && !f.konto) return 'Wybierz konto.';
+    if (p.zwrot === 'jednorazowo' && !p.termin) return 'Wybierz termin zwrotu.';
+    if (p.zwrot === 'raty' && !(Number(p.liczba_rat) >= 1 && Number(p.liczba_rat) <= 120)) return 'Liczba rat musi być od 1 do 120.';
+    if (p.zwrot === 'raty' && !p.pierwsza_rata) return 'Wybierz termin pierwszej raty.';
+    return null;
+  }
   if (!f.konto) return 'Wybierz konto.';
   if (!f.data) return czyPlan() ? 'Wybierz termin.' : 'Wybierz datę operacji.';
   if (czyMiedzyKontami()) {
@@ -640,9 +789,9 @@ function kurs(orig, waluta, data, kwota) {
   return { kurs: '', kwota_pln: '' };
 }
 
-function tekstZalacznikow() {
-  return f.zalaczniki.map(z => z.nowy ? `${z.nazwa} | oczekuje:${z.plik_id}` : z.linia).join('\n');
-}
+const tekstZalacznikow = () => f.zalaczniki.map(z => z.nowy ? `${z.nazwa} | oczekuje:${z.plik_id}` : z.linia).join('\n');
+const normTagi = () => f.tagi.split(',').map(s => s.trim()).filter(Boolean).join(', ');
+const nowePliki = () => f.zalaczniki.filter(z => z.nowy).map(z => ({ plik_id: z.plik_id, nazwa: z.nazwa, mime: z.mime, blob: z.blob, data: f.data }));
 
 async function zapiszPlan(kwota) {
   const o = f.planOryginal;
@@ -653,17 +802,15 @@ async function zapiszPlan(kwota) {
     konto: f.konto, konto_docelowe: '',
     kategoria: f.typ === 'wydatek' ? f.kategoria : '', podkategoria: f.typ === 'wydatek' ? f.podkategoria : '',
     zrodlo_przychodu: f.typ === 'wpływ' ? f.kategoria : '',
-    kontrahent: f.kontrahent.trim(), podmiot: f.podmiot, tagi: normTagi(), opis: f.opis.trim(), budzet: f.budzet,
+    kontrahent: f.kontrahent.trim(), podmiot: f.podmiot, tagi: normTagi(), opis: f.opis.trim(), budzet: f.budzet, pozyczka_id: o?.pozyczka_id || '',
     data_start: o?.data_start || f.data, nastepna_data: f.data,
     powtarzanie: rodzaj === 'jednorazowa' ? '' : f.powtarzanie, co_ile: rodzaj === 'jednorazowa' ? '' : Number(f.co_ile) || 1,
     data_koniec: rodzaj === 'jednorazowa' ? '' : f.data_koniec,
-    przypomnienie_dni: o?.przypomnienie_dni ?? 3, status: o?.status || 'aktywna',
+    przypomnienie_dni: o?.przypomnienie_dni ?? 3, status: o?.status === 'zakończona' ? 'aktywna' : (o?.status || 'aktywna'),
   };
   await sync.zapisz('PLANOWANE', [p]);
   return p;
 }
-
-const normTagi = () => f.tagi.split(',').map(s => s.trim()).filter(Boolean).join(', ');
 
 export async function zapiszFormularz() {
   if (!f || !$('.dodaj')) return;
@@ -673,18 +820,33 @@ export async function zapiszFormularz() {
   if (komunikat) { toast(komunikat, 'blad'); return; }
   const waluta = walutaFormularza();
 
+  if (czyPozyczka()) {
+    const p = f.pozyczka;
+    const { raty } = await zapiszPozyczke({
+      rodzaj: p.rodzaj, osoba: f.kontrahent.trim(), kwota, waluta, konto: f.konto, data: f.data,
+      zwrot: p.zwrot, termin: p.termin, liczba_rat: p.liczba_rat, co_ile: p.co_ile, powtarzanie: p.powtarzanie,
+      pierwsza_rata: p.pierwsza_rata, konto_splat: p.konto_splat || f.konto,
+      kategoria: f.kategoria, podkategoria: f.podkategoria, podmiot: f.podmiot, opis: f.opis.trim(), tagi: normTagi(),
+      zalacznik: tekstZalacznikow(),
+    }, nowePliki());
+    zapamietaj({ konto: f.konto, podmiot: f.podmiot });
+    toast(`Zapisano pożyczkę ${kwotaTxt(kwota, waluta)}${raty.length ? `, ${raty.length} ${odmiana(raty.length, 'termin', 'terminy', 'terminów')} w planowanych` : ''}.`, 'ok');
+    f = null;
+    location.hash = '#pozyczki';
+    return;
+  }
+
   if (czyPlan()) {
     await zapiszPlan(kwota);
     zapamietaj({ konto: f.konto, podmiot: f.podmiot });
     await wczytajDane();
-    toast(f.tryb === 'edycja' ? 'Zapisano zmiany w planie.' : `Zaplanowano ${f.typ} ${kwotaTxt(kwota, waluta)} na ${dataSlownie(f.data).toLowerCase()}.`, 'ok');
-    const byl = f.tryb;
-    f = byl === 'edycja' ? null : nowyFormularz({ typ: f.typ, konto: f.konto, waluta: f.waluta, podmiot: f.podmiot });
-    if (byl === 'edycja') location.hash = '#planowane'; else renderDodaj();
+    toast(f.tryb === 'edycja' ? 'Zapisano zmiany w planie.' : `Zaplanowano ${f.subskrypcja ? 'subskrypcję' : f.typ} ${kwotaTxt(kwota, waluta)} na ${dataSlownie(f.data).toLowerCase()}.`, 'ok');
+    const byl = f.tryb, sub = f.subskrypcja;
+    f = byl === 'edycja' || sub ? null : nowyFormularz({ typ: f.typ, konto: f.konto, waluta: f.waluta, podmiot: f.podmiot });
+    if (byl === 'edycja' || sub) location.hash = sub ? '#subskrypcje' : '#planowane'; else renderDodaj();
     return;
   }
 
-  const nowePliki = f.zalaczniki.filter(z => z.nowy).map(z => ({ plik_id: z.plik_id, nazwa: z.nazwa, mime: z.mime, blob: z.blob, data: f.data }));
   const wspolne = {
     data_operacji: f.data, tagi: normTagi(), nr_dokumentu: f.nr_dokumentu.trim(), opis: f.opis.trim(), zalacznik: tekstZalacznikow(),
   };
@@ -702,6 +864,7 @@ export async function zapiszFormularz() {
       id: orig?.id || uuid(), typ, id_pary: para, podzial_id: '', konto, kwota: kw, waluta: wal,
       ...kurs(orig, wal, f.data, kw),
       kategoria: f.typ === 'wymiana' ? WYMIANA : '', podkategoria: '', zrodlo_przychodu: '', kontrahent: '', podmiot: '', budzet: '',
+      cel: typ === 'przeksięgowanie-wpływ' ? f.cel : '',
       status: nowyStatus(orig), zrodlo: orig?.zrodlo || 'ręczny',
     });
     wiersze = [
@@ -722,7 +885,7 @@ export async function zapiszFormularz() {
         ...kurs(orig, waluta, f.data, c.kwota),
         kategoria: f.typ === 'wydatek' ? c.kategoria : '', podkategoria: f.typ === 'wydatek' ? c.podkategoria : '',
         zrodlo_przychodu: f.typ === 'wpływ' ? c.kategoria : '',
-        kontrahent: f.kontrahent.trim(), podmiot: f.podmiot, budzet: f.budzet,
+        kontrahent: f.kontrahent.trim(), podmiot: f.podmiot, budzet: f.budzet, cel: f.cel,
         status: nowyStatus(orig), zrodlo: orig?.zrodlo || 'ręczny',
       };
     });
@@ -731,10 +894,10 @@ export async function zapiszFormularz() {
 
     if (f.tryb === 'nowy') {
       const moje = { konto: f.konto, waluta, kwota, data_operacji: f.data, typ: f.typ };
-      const podobne = grupy().filter(g => g.rodzaj !== 'przeksiegowanie' && g.rodzaj !== 'wymiana'
-        && g.glowna.status !== 'anulowana' && g.glowna.konto === moje.konto && g.glowna.waluta === moje.waluta
-        && Math.abs(g.kwota - kwota) < 0.005 && kierunek(g.glowna) === kierunek(moje)
-        && Math.abs(roznicaDni(g.glowna.data_operacji, f.data)) <= 3);
+      const podobne = grupy().filter(g => g.rodzaj === 'pojedyncza' || g.rodzaj === 'podzial')
+        .filter(g => g.glowna.status !== 'anulowana' && g.glowna.konto === moje.konto && g.glowna.waluta === moje.waluta
+          && Math.abs(g.kwota - kwota) < 0.005 && kierunek(g.glowna) === kierunek(moje)
+          && Math.abs(roznicaDni(g.glowna.data_operacji, f.data)) <= 3);
       if (podobne.length) {
         const decyzja = await okno('Taka transakcja może już być zapisana',
           `<p>Na koncie ${esc(f.konto)} jest już ${podobne.length === 1 ? 'operacja' : 'kilka operacji'} na ${esc(kwotaTxt(kwota, waluta))} z podobną datą:</p>
@@ -748,7 +911,7 @@ export async function zapiszFormularz() {
     }
   }
 
-  await sync.zapisz('TRANSAKCJE', wiersze, nowePliki);
+  await sync.zapisz('TRANSAKCJE', wiersze, nowePliki());
   zapamietaj({ konto: f.konto, podmiot: f.podmiot });
   await wczytajDane();
   const offline = !navigator.onLine;
@@ -778,8 +941,18 @@ async function anuluj() {
   else await sync.zapisz('TRANSAKCJE', f.oryginaly.map(o => ({ ...o, status: 'anulowana' })));
   await wczytajDane();
   toast(plan ? 'Usunięto z planu.' : 'Transakcja anulowana.', 'ok');
+  const sub = f.subskrypcja;
   f = null;
-  location.hash = plan ? '#planowane' : '#lista';
+  location.hash = plan ? (sub ? '#subskrypcje' : '#planowane') : '#lista';
 }
 
 export const pisze = () => Boolean(f && $('.dodaj'));
+
+export const ekran = {
+  render: arg => {
+    const [trasa, id] = arg;
+    renderDodaj(trasa, id);
+  },
+  klik: obsluzKlik, zmiana: obsluzZmiane, wejscie: obsluzWejscie,
+  submit: form => { if (form.classList.contains('kolumna-szczegolow')) zapiszFormularz(); },
+};

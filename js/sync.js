@@ -11,6 +11,7 @@ export const KLUCZE = {
   TRANSAKCJE: r => String(r.id),
   PLANOWANE: r => String(r.id),
   BUDZETY: r => String(r.id),
+  POZYCZKI: r => String(r.id),
 };
 let kartyPobierane = Object.keys(KLUCZE);
 
@@ -43,10 +44,18 @@ export async function odswiezLicznik() {
 
 /** Zapis na urządzeniu + kolejka do wysłania. Działa także bez internetu. */
 export async function zapisz(karta, wiersze, pliki = []) {
-  const klucz = KLUCZE[karta];
+  return zapiszWiele([{ karta, wiersze }], pliki);
+}
+
+/** Kilka kart naraz (np. pożyczka + transakcja + raty) i jedna synchronizacja po wszystkim. */
+export async function zapiszWiele(paczki, pliki = []) {
   for (const p of pliki) await db.plikDodaj(p);
-  await db.zapiszWiersze(karta, wiersze, klucz);
-  for (const w of wiersze) await db.kolejkaDodaj(karta, klucz(w), w);
+  for (const { karta, wiersze } of paczki) {
+    if (!wiersze.length) continue;
+    const klucz = KLUCZE[karta];
+    await db.zapiszWiersze(karta, wiersze, klucz);
+    for (const w of wiersze) await db.kolejkaDodaj(karta, klucz(w), w);
+  }
   await odswiezLicznik();
   synchronizuj().catch(() => {});
 }
@@ -173,8 +182,10 @@ async function pobierzZmiany(pelna) {
   }
 }
 
+let ponow = false;
+
 export function synchronizuj({ pelna = false } = {}) {
-  if (biezaca) return biezaca;
+  if (biezaca) { ponow = true; return biezaca; }
   biezaca = (async () => {
     await odswiezLicznik();
     if (!skonfigurowane()) { ustaw({ tryb: 'brak-ustawien', blad: null }); return; }
@@ -195,7 +206,12 @@ export function synchronizuj({ pelna = false } = {}) {
       await odswiezLicznik();
       ustaw({ tryb: navigator.onLine ? 'blad' : 'offline', blad: e.message, zmiana: Date.now(), bladApi: e instanceof BladApi });
     }
-  })().finally(() => { biezaca = null; });
+  })().finally(() => {
+    biezaca = null;
+    // zapis dodany w trakcie synchronizacji – wysyłamy od razu, zamiast czekać na kolejną
+    if (ponow && stan.tryb === 'ok' && stan.oczekujace) { ponow = false; synchronizuj(); }
+    ponow = false;
+  });
   return biezaca;
 }
 

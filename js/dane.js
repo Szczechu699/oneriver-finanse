@@ -1,14 +1,14 @@
-// Dane z urządzenia i wszystko, co z nich wynika: Słownik, grupy transakcji, budżety, terminy planowanych.
+// Dane z urządzenia i wszystko, co z nich wynika: Słownik, grupy transakcji, konta, pożyczki, budżety, cele, planowane.
 
 import * as db from './db.js';
 import * as sync from './sync.js';
 import { dataLok, dodajDni, przesunDate, roznicaDni, zaokr } from './util.js';
 
-export const dane = { slownik: [], transakcje: [], planowane: [], budzety: [] };
+export const dane = { slownik: [], transakcje: [], planowane: [], budzety: [], pozyczki: [] };
 
 export async function wczytajDane() {
-  [dane.slownik, dane.transakcje, dane.planowane, dane.budzety] = await Promise.all(
-    ['SLOWNIK', 'TRANSAKCJE', 'PLANOWANE', 'BUDZETY'].map(k => db.wiersze(k)));
+  [dane.slownik, dane.transakcje, dane.planowane, dane.budzety, dane.pozyczki] = await Promise.all(
+    ['SLOWNIK', 'TRANSAKCJE', 'PLANOWANE', 'BUDZETY', 'POZYCZKI'].map(k => db.wiersze(k)));
 }
 
 // ── Słownik ──
@@ -18,22 +18,32 @@ export function atrybuty(w) {
   try { return JSON.parse(w.atrybuty) || {}; } catch { return {}; }
 }
 const kolejnosc = w => (w.kolejnosc === '' || w.kolejnosc == null || isNaN(Number(w.kolejnosc)) ? 999 : Number(w.kolejnosc));
-const aktywna = w => !(w.aktywna === false || String(w.aktywna).toUpperCase() === 'FALSE');
-export function lista(nazwa) {
+export const aktywna = w => !(w.aktywna === false || String(w.aktywna).toUpperCase() === 'FALSE');
+export function lista(nazwa, zArchiwum = false) {
   return dane.slownik
-    .filter(w => w.lista === nazwa && aktywna(w))
+    .filter(w => w.lista === nazwa && (zArchiwum || aktywna(w)))
     .sort((a, b) => kolejnosc(a) - kolejnosc(b) || String(a.nazwa).localeCompare(String(b.nazwa), 'pl'));
 }
-export const konta = () => lista('konta').map(k => ({ ...k, waluta: atrybuty(k).waluta || '' }));
-export const walutaKonta = nazwa => konta().find(k => k.nazwa === nazwa)?.waluta || '';
+
+// Mocniejsze kolory dla kont (paski, etykiety), pastelowe dla kategorii (tła ikon).
+export const KOLORY_KONT = ['#E2B93B', '#4C9BD6', '#D9544F', '#6B4F3F', '#3BB3C3', '#A35DC0', '#E57F5A', '#3F4448', '#4E9A62', '#C44F84'];
+export const KOLORY = ['#CDE6DF', '#F3DDA9', '#E8D2E2', '#D2E3F3', '#DDE8C6', '#F1D5CB', '#DBD5EF', '#C8DED3', '#EEE3C1', '#D9DCE0',
+  '#F6C9C9', '#C9E8F6', '#FBE3B8', '#D7F0D2', '#E5D7F6', '#F7D9EC'];
+
+export const konta = (zArchiwum = false) => lista('konta', zArchiwum).map((k, i) => {
+  const a = atrybuty(k);
+  return { ...k, waluta: a.waluta || '', kolor: a.kolor || KOLORY_KONT[i % KOLORY_KONT.length], typKonta: a.typ || 'bank' };
+});
+export const walutaKonta = nazwa => konta(true).find(k => k.nazwa === nazwa)?.waluta || '';
+export const kolorKonta = nazwa => konta(true).find(k => k.nazwa === nazwa)?.kolor || '#8A9592';
 export function waluty() {
   const w = lista('waluty').map(x => x.nazwa);
   return w.length ? w : ['PLN', 'EUR', 'USD'];
 }
 export const listaKategorii = typ => (typ === 'wpływ' ? 'zrodla_przychodu' : 'kategorie_kosztow');
 export const glowne = typ => lista(listaKategorii(typ)).filter(k => !k.rodzic);
-export function podrzedne(typ, nazwaRodzica) {
-  const l = lista(listaKategorii(typ));
+export function podrzedne(typ, nazwaRodzica, zArchiwum = false) {
+  const l = lista(listaKategorii(typ), zArchiwum);
   const rodzic = l.find(k => k.nazwa === nazwaRodzica && !k.rodzic);
   return rodzic ? l.filter(k => k.rodzic === rodzic.id) : [];
 }
@@ -48,24 +58,61 @@ const IKONY = [
   [/podróż/i, '✈️'], [/sklep/i, '🛒'], [/stoisk|kiermasz/i, '🎪'], [/ceremon|warsztat/i, '🪶'],
   [/wypraw/i, '🧭'], [/granic/i, '🌍'],
 ];
-export const KOLORY = ['#CDE6DF', '#F3DDA9', '#E8D2E2', '#D2E3F3', '#DDE8C6', '#F1D5CB', '#DBD5EF', '#C8DED3', '#EEE3C1', '#D9DCE0'];
 export function ikona(nazwa, typ) {
-  const w = lista(listaKategorii(typ)).find(k => k.nazwa === nazwa);
+  const w = lista(listaKategorii(typ), true).find(k => k.nazwa === nazwa && !k.rodzic);
   const a = atrybuty(w);
   if (a.ikona) return a.ikona;
   const m = IKONY.find(([r]) => r.test(nazwa || ''));
   return m ? m[1] : '•';
 }
 export function kolorKategorii(nazwa, typ) {
-  const l = glowne(typ);
+  const l = lista(listaKategorii(typ), true).filter(k => !k.rodzic);
   const i = l.findIndex(k => k.nazwa === nazwa);
-  return atrybuty(l[i]).kolor || KOLORY[(i < 0 ? 9 : i) % KOLORY.length];
+  return atrybuty(l[i]).kolor || KOLORY[(i < 0 ? 9 : i) % 10];
+}
+
+// ── tytuły: stałe skojarzenia tytułu z kategorią ──
+export const tytuly = () => lista('tytuly').map(t => ({ ...t, ...atrybuty(t) }));
+
+/** Podpowiedzi przy wpisywaniu tytułu: najpierw zapisane tytuły, potem historia transakcji. */
+export function podpowiedziTytulu(tekst, typ, ile = 5) {
+  const q = String(tekst || '').trim().toLowerCase();
+  if (q.length < 2) return [];
+  const wynik = [];
+  const widziane = new Set();
+  const dodaj = p => {
+    const klucz = p.tytul.toLowerCase() + '|' + p.kategoria;
+    if (widziane.has(klucz) || !p.kategoria) return;
+    widziane.add(klucz);
+    wynik.push(p);
+  };
+  tytuly().filter(t => (t.typ || 'wydatek') === typ)
+    .filter(t => t.nazwa.toLowerCase().includes(q) || q.includes(t.nazwa.toLowerCase()))
+    .forEach(t => dodaj({ tytul: t.nazwa, kategoria: t.kategoria || '', podkategoria: t.podkategoria || '', zrodlo: 'tytuł' }));
+  const historia = new Map();
+  dane.transakcje.forEach(t => {
+    const k = String(t.kontrahent || '').trim();
+    if (!k || t.typ !== typ || t.status === 'anulowana' || t.podzial_id || !k.toLowerCase().includes(q)) return;
+    const kat = typ === 'wpływ' ? t.zrodlo_przychodu : t.kategoria;
+    const stary = historia.get(k.toLowerCase());
+    if (!stary || String(stary.data) < String(t.data_operacji)) {
+      historia.set(k.toLowerCase(), { tytul: k, kategoria: kat || '', podkategoria: t.podkategoria || '', data: t.data_operacji, zrodlo: 'historia' });
+    }
+  });
+  [...historia.values()]
+    .sort((a, b) => (a.tytul.toLowerCase().startsWith(q) ? 0 : 1) - (b.tytul.toLowerCase().startsWith(q) ? 0 : 1) || String(b.data).localeCompare(String(a.data)))
+    .forEach(dodaj);
+  return wynik.slice(0, ile);
 }
 
 // ── transakcje ──
 export const WYMIANA = 'Wymiana walut';
+export const TYPY_POZYCZEK = ['pożyczka-udzielona', 'pożyczka-otrzymana', 'spłata-otrzymana', 'spłata-oddana'];
+const WPLYWY = new Set(['wpływ', 'przeksięgowanie-wpływ', 'pożyczka-otrzymana', 'spłata-otrzymana']);
 export const czyPrzeks = t => String(t.typ || '').startsWith('przeksięgowanie');
-export const kierunek = t => (t.typ === 'wpływ' || t.typ === 'przeksięgowanie-wpływ' ? 'wpływ' : 'wypływ');
+export const czyPozyczkowa = t => TYPY_POZYCZEK.includes(t.typ);
+export const czyZakupZaMnie = t => t.typ === 'wydatek' && !t.konto && Boolean(t.pozyczka_id);
+export const kierunek = t => (WPLYWY.has(t.typ) ? 'wpływ' : 'wypływ');
 export function kwotaPLN(t) {
   if (t.waluta === 'PLN' || !t.waluta) return Number(t.kwota) || 0;
   if (t.kwota_pln !== '' && t.kwota_pln != null) return Number(t.kwota_pln);
@@ -89,7 +136,7 @@ export function grupy(lista_ = dane.transakcje) {
       if (!wgPary.has(t.id_pary)) wgPary.set(t.id_pary, []);
       wgPary.get(t.id_pary).push(t);
     } else {
-      wynik.push({ rodzaj: 'pojedyncza', glowna: t, czesci: [t], kwota: Number(t.kwota) || 0 });
+      wynik.push({ rodzaj: czyPozyczkowa(t) || czyZakupZaMnie(t) ? 'pozyczka' : 'pojedyncza', glowna: t, czesci: [t], kwota: Number(t.kwota) || 0 });
     }
   }
   for (const czesci of wgPodzialu.values()) {
@@ -115,6 +162,28 @@ export function grupaDla(id) {
   return grupy(pasujace)[0] || null;
 }
 
+// ── konta: saldo = saldo początkowe + ruchy od daty salda ──
+export function stanKont() {
+  const stan = new Map();
+  konta(true).forEach(k => {
+    const a = atrybuty(k);
+    const waluta = k.waluta || 'PLN';
+    const salda = {};
+    if (a.saldo_poczatkowe !== undefined && a.saldo_poczatkowe !== '') salda[waluta] = Number(a.saldo_poczatkowe) || 0;
+    stan.set(k.nazwa, { konto: k, salda, liczba: 0, odDaty: a.data_salda || '' });
+  });
+  for (const t of dane.transakcje) {
+    if (!t.konto || t.status === 'anulowana') continue;
+    const s = stan.get(t.konto);
+    if (!s) continue;
+    s.liczba++;
+    if (s.odDaty && String(t.data_operacji) < s.odDaty) continue;
+    const w = t.waluta || s.konto.waluta || 'PLN';
+    s.salda[w] = zaokr((s.salda[w] || 0) + (kierunek(t) === 'wpływ' ? 1 : -1) * (Number(t.kwota) || 0));
+  }
+  return stan;
+}
+
 // ── załączniki ──
 export function zalaczniki(tekst) {
   return String(tekst || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => {
@@ -128,34 +197,88 @@ export function zalaczniki(tekst) {
 
 // ── planowane ──
 export const RYTMY = { 'dzień': ['dzień', 'dni', 'dni'], 'tydzień': ['tydzień', 'tygodnie', 'tygodni'], 'miesiąc': ['miesiąc', 'miesiące', 'miesięcy'], 'rok': ['rok', 'lata', 'lat'] };
+export function formaRytmu(jednostka, n) {
+  const f = RYTMY[jednostka] || RYTMY['miesiąc'];
+  if (n === 1) return f[0];
+  const d = n % 10, s = n % 100;
+  return d >= 2 && d <= 4 && (s < 12 || s > 14) ? f[1] : f[2];
+}
 export function opisRytmu(p) {
   if (p.rodzaj === 'jednorazowa') return 'jednorazowo';
+  if (p.rodzaj === 'rata') return 'rata pożyczki';
   const n = Number(p.co_ile) || 1;
-  const formy = RYTMY[p.powtarzanie] || RYTMY['miesiąc'];
   if (n === 1) return { 'dzień': 'codziennie', 'tydzień': 'co tydzień', 'miesiąc': 'co miesiąc', 'rok': 'co rok' }[p.powtarzanie] || 'co miesiąc';
-  const d = n % 10, s = n % 100;
-  return `co ${n} ${d >= 2 && d <= 4 && (s < 12 || s > 14) ? formy[1] : formy[2]}`;
+  return `co ${n} ${formaRytmu(p.powtarzanie, n)}`;
 }
 export const aktywnePlanowane = () => dane.planowane.filter(p => p.status === 'aktywna');
-export function nastepnyTermin(p) {
-  if (p.rodzaj === 'jednorazowa') return null;
-  const nowa = przesunDate(p.nastepna_data, p.powtarzanie || 'miesiąc', Number(p.co_ile) || 1, p.data_start || p.nastepna_data);
+export const jednorazowa = p => p.rodzaj === 'jednorazowa' || p.rodzaj === 'rata';
+export function nastepnyTermin(p, od = p.nastepna_data) {
+  if (jednorazowa(p)) return null;
+  const nowa = przesunDate(od, p.powtarzanie || 'miesiąc', Number(p.co_ile) || 1, p.data_start || p.nastepna_data);
   if (p.data_koniec && nowa > p.data_koniec) return null;
   return nowa;
 }
+/** Wszystkie terminy pozycji planowanej do daty „do” włącznie (od najbliższego, także zaległego). */
+export function terminy(p, do_) {
+  const wynik = [];
+  let d = p.nastepna_data;
+  while (d && d <= do_ && wynik.length < 400) {
+    wynik.push(d);
+    d = nastepnyTermin(p, d);
+  }
+  return wynik;
+}
 export function miesiecznyKoszt(p) {
+  if (jednorazowa(p)) return 0;
   const n = Number(p.co_ile) || 1;
   const k = Number(p.kwota) || 0;
   return { 'dzień': k * 30.44 / n, 'tydzień': k * 4.345 / n, 'miesiąc': k / n, 'rok': k / 12 / n }[p.powtarzanie || 'miesiąc'] ?? k;
 }
 export const poTerminie = () => aktywnePlanowane().filter(p => p.nastepna_data && p.nastepna_data < dataLok());
+export const kierunekPlanu = p => (p.typ === 'wpływ' || p.typ === 'spłata-otrzymana' ? 'wpływ' : 'wypływ');
 
-// ── budżety ──
+// ── pożyczki ──
+export const RODZAJE_POZYCZEK = {
+  udzielona: { etykieta: 'Pożyczam komuś', krotko: 'Pożyczyłem', osoba: 'Komu', typ: 'pożyczka-udzielona', splata: 'spłata-otrzymana', strona: 'do-odzyskania' },
+  otrzymana: { etykieta: 'Pożyczam od kogoś', krotko: 'Pożyczyłem od', osoba: 'Od kogo', typ: 'pożyczka-otrzymana', splata: 'spłata-oddana', strona: 'do-oddania' },
+  'zakup-za-mnie': { etykieta: 'Ktoś zapłacił za mnie', krotko: 'Zapłacił za mnie', osoba: 'Kto zapłacił', typ: 'wydatek', splata: 'spłata-oddana', strona: 'do-oddania' },
+};
+export const stronaPozyczki = p => RODZAJE_POZYCZEK[p.rodzaj]?.strona || 'do-oddania';
+
+/** Rozkład kwoty na raty: równe kwoty, ostatnia wyrównuje grosze. */
+export function harmonogram(kwota, liczbaRat, pierwsza, jednostka = 'miesiąc', co = 1) {
+  const n = Math.max(1, Math.min(120, Math.floor(liczbaRat) || 1));
+  const rata = Math.floor((kwota / n) * 100) / 100;
+  return Array.from({ length: n }, (_, i) => ({
+    nr: i + 1, z: n,
+    data: i === 0 ? pierwsza : przesunDate(pierwsza, jednostka, i * (Number(co) || 1), pierwsza),
+    kwota: i === n - 1 ? zaokr(kwota - rata * (n - 1)) : rata,
+  }));
+}
+
+export function stanPozyczki(p) {
+  const kwota = Number(p.kwota) || 0;
+  const typSplaty = RODZAJE_POZYCZEK[p.rodzaj]?.splata;
+  const splaty = dane.transakcje
+    .filter(t => t.pozyczka_id === p.id && t.typ === typSplaty && t.status !== 'anulowana')
+    .sort((a, b) => String(a.data_operacji).localeCompare(String(b.data_operacji)));
+  const splacono = zaokr(splaty.reduce((s, t) => s + (Number(t.kwota) || 0), 0));
+  const raty = dane.planowane.filter(x => x.pozyczka_id === p.id && x.status !== 'anulowana')
+    .sort((a, b) => String(a.nastepna_data).localeCompare(String(b.nastepna_data)));
+  const nastepna = raty.find(r => r.status === 'aktywna');
+  return {
+    kwota, splacono, pozostalo: zaokr(Math.max(0, kwota - splacono)), procent: kwota > 0 ? Math.min(1, splacono / kwota) : 0,
+    splaty, raty, nastepna, poTerminie: raty.filter(r => r.status === 'aktywna' && r.nastepna_data < dataLok()).length,
+  };
+}
+
+// ── budżety i cele ──
 export const aktywneBudzety = () => dane.budzety.filter(b => b.status !== 'anulowany' && b.status !== 'zakończony');
+export const aktywneCele = () => aktywneBudzety().filter(b => b.rodzaj === 'cel');
 
 /** Zakres dat bieżącego okresu budżetu [od, do] (włącznie). */
 export function okresBudzetu(b, dzien = dataLok()) {
-  if (b.rodzaj === 'projekt') return [b.data_od || '0000-01-01', b.data_do || '9999-12-31'];
+  if (b.rodzaj === 'projekt' || b.rodzaj === 'cel') return [b.data_od || '0000-01-01', b.data_do || '9999-12-31'];
   if (b.okres === 'tydzień') {
     const d = new Date(dzien + 'T12:00:00');
     const pon = dodajDni(dzien, -((d.getDay() + 6) % 7));
@@ -173,7 +296,7 @@ export function stanBudzetu(b, dzien = dataLok()) {
   const kat = new Set(kategorieBudzetu(b));
   let wydane = 0, wplywy = 0, bezKursu = 0, liczba = 0;
   for (const t of dane.transakcje) {
-    if (t.status === 'anulowana' || czyPrzeks(t)) continue;
+    if (t.status === 'anulowana' || czyPrzeks(t) || czyPozyczkowa(t)) continue;
     const d = t.data_operacji || '';
     if (b.rodzaj === 'projekt') {
       if (t.budzet !== b.id) continue;
@@ -194,6 +317,25 @@ export function stanBudzetu(b, dzien = dataLok()) {
     od, do: do_, wydane: zaokr(wydane), wplywy: zaokr(wplywy), kwota, zostalo: zaokr(zostalo),
     procent: kwota > 0 ? wydane / kwota : 0, bezKursu, liczba,
     naDzien: dniDoKonca && zostalo > 0 ? zaokr(zostalo / dniDoKonca) : null, dniDoKonca,
+  };
+}
+
+/** Cel: wpływy i przeksięgowania przypisane do celu zwiększają postęp, wydatki z celu go zmniejszają. */
+export function stanCelu(c, dzien = dataLok()) {
+  let zebrano = 0, bezKursu = 0, liczba = 0;
+  for (const t of dane.transakcje) {
+    if (t.cel !== c.id || t.status === 'anulowana') continue;
+    const k = kwotaPLN(t);
+    if (k === null) { bezKursu++; continue; }
+    liczba++;
+    zebrano += kierunek(t) === 'wpływ' ? k : -k;
+  }
+  const kwota = Number(c.kwota) || 0;
+  const brakuje = Math.max(0, kwota - zebrano);
+  const dni = c.data_do && c.data_do >= dzien ? roznicaDni(c.data_do, dzien) : null;
+  return {
+    kwota, zebrano: zaokr(zebrano), brakuje: zaokr(brakuje), procent: kwota > 0 ? Math.max(0, zebrano / kwota) : 0,
+    bezKursu, liczba, dni, miesiecznie: dni && brakuje > 0 ? zaokr(brakuje / Math.max(1, dni / 30.44)) : null,
   };
 }
 

@@ -17,21 +17,17 @@
   <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
-  <header class="gora">
-    <a class="marka" href="#dodaj">
-      <img src="icons/icon-192.png" alt="" width="34" height="34">
-      <span>One River <b>Finanse</b></span>
-    </a>
-    <nav class="zakladki" aria-label="Sekcje aplikacji">
-      <a href="#dodaj" data-widok="dodaj">Dodaj</a>
-      <a href="#lista" data-widok="lista">Transakcje</a>
-      <a href="#planowane" data-widok="planowane">Planowane <span class="licznik" hidden></span></a>
-      <a href="#budzety" data-widok="budzety">Budżety</a>
-      <a href="#ustawienia" data-widok="ustawienia">Ustawienia</a>
-    </nav>
-    <button class="sync" id="sync" type="button">Uruchamianie…</button>
-  </header>
-  <main id="widok" tabindex="-1"></main>
+  <div class="uklad">
+    <aside class="bok">
+      <a class="marka" href="#dodaj">
+        <img src="icons/icon-192.png" alt="" width="34" height="34">
+        <span>One River <b>Finanse</b></span>
+      </a>
+      <nav class="menu" aria-label="Sekcje aplikacji"></nav>
+      <button class="sync" id="sync" type="button">Uruchamianie…</button>
+    </aside>
+    <main id="widok" tabindex="-1"></main>
+  </div>
   <div id="toast" role="status" aria-live="polite"></div>
   <dialog id="okno"></dialog>
   <script type="module" src="js/app.js"></script>

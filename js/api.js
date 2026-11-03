@@ -49,6 +49,13 @@ export async function wywolaj(akcja, dane = {}, limitMs = 45000) {
   } catch {
     throw new BladApi('Odpowiedź nie pochodzi z API aplikacji. Sprawdź adres w Ustawieniach.');
   }
+  if (json.wersja) {
+    try { localStorage.setItem('or-finanse-wersja-api', String(json.wersja)); } catch { /* bez znaczenia */ }
+  }
   if (!json.ok) throw new BladApi(json.blad || 'Nieznany błąd API.');
   return json.dane;
+}
+
+export function wersjaApi() {
+  try { return Number(localStorage.getItem('or-finanse-wersja-api')) || 0; } catch { return 0; }
 }
