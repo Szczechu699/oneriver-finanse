@@ -10,8 +10,10 @@ import {
   dane, wczytajDane, atrybuty, lista, konta, walutaKonta, kolorKonta, waluty, glowne, podrzedne, podmioty, ikona, KOLORY,
   kierunek, grupy, grupaDla, zalaczniki, WYMIANA, RYTMY, formaRytmu, budzetyDoWyboru, aktywneBudzety, aktywneCele,
   stanBudzetu, kategorieBudzetu, podpowiedziTytulu, RODZAJE_POZYCZEK, harmonogram,
+  PRYWATNE, podmiotKonta, czyWirtualne, kontoCelu, stanCelu,
 } from './dane.js';
 import { zapiszPozyczke } from './pozyczki.js';
+import { ikonaSvg } from './ikony.js';
 
 let f = null;
 let podpowiedzi = [];
@@ -309,14 +311,14 @@ function htmlPozyczki() {
     <fieldset class="pole">
       <legend>Dotyczy</legend>
       <div class="chipy">${podmioty().map(x => `
-        <button type="button" class="chip" data-akcja="podmiot" data-v="${esc(x)}" aria-pressed="${f.podmiot === x}">${esc(x === 'wspólne' ? 'Wspólne' : x)}</button>`).join('')}</div>
+        <button type="button" class="chip ${x === PRYWATNE ? 'chip-prywatny' : ''}" data-akcja="podmiot" data-v="${esc(x)}" aria-pressed="${f.podmiot === x}">${esc(x)}</button>`).join('')}</div>
     </fieldset>`;
 }
 
 // ── fragmenty ekranu ──
 
 function przyciskiKont(pole, wybrane, filtr = () => true) {
-  const l = konta().filter(filtr);
+  const l = konta().filter(k => (czyMiedzyKontami() || !k.wirtualne) && filtr(k));
   if (!konta().length) return `<p class="pusto">Brak kont. Dodaj je w „Edytuj dane”.</p>`;
   if (!l.length) return `<p class="pusto">Brak kont w innej walucie.</p>`;
   return `<div class="chipy">${l.map(k => `
@@ -390,26 +392,31 @@ function htmlPlanu() {
 }
 
 function htmlBudzetuICelu(miedzy) {
-  const budzety = miedzy ? [] : budzetyDoWyboru(f.data);
+  const budzety = miedzy || czyPlan() ? (czyPlan() && !miedzy ? budzetyDoWyboru(f.data) : []) : budzetyDoWyboru(f.data);
   const wybrany = f.budzet && dane.budzety.find(b => b.id === f.budzet);
   if (wybrany && !budzety.includes(wybrany)) budzety.push(wybrany);
-  const cele = aktywneCele();
+  const cele = czyPlan() ? [] : aktywneCele();
   const wybranyCel = f.cel && dane.budzety.find(b => b.id === f.cel);
   if (wybranyCel && !cele.includes(wybranyCel)) cele.push(wybranyCel);
-  return `${budzety.length ? `<fieldset class="pole">
-      <legend>Budżet</legend>
+  if (!budzety.length && !cele.length) return '';
+  let podp = '';
+  if (wybranyCel) {
+    const s = stanCelu(wybranyCel);
+    podp = miedzy
+      ? `Odkładasz na „${wybranyCel.nazwa}”: odłożono ${kwotaTxt(s.zebrano)} z ${kwotaTxt(s.kwota)}.`
+      : f.typ === 'wydatek'
+        ? `Wydatek z celu „${wybranyCel.nazwa}”: zostało w celu ${kwotaTxt(s.zostalo)}${czyWirtualne(kontoCelu(wybranyCel)) && f.konto !== kontoCelu(wybranyCel) ? `, kwota zejdzie też ze Skarbonki` : ''}.`
+        : `Wpływ zasili cel „${wybranyCel.nazwa}”.`;
+  }
+  return `<fieldset class="pole">
+      <legend>${miedzy ? 'Odłóż na cel' : 'Budżet lub cel'}</legend>
       <div class="chipy">
-        <button type="button" class="chip" data-akcja="budzet" data-v="" aria-pressed="${!f.budzet}">Bez budżetu</button>
-        ${budzety.map(b => `<button type="button" class="chip" data-akcja="budzet" data-v="${esc(b.id)}" aria-pressed="${f.budzet === b.id}">${esc(b.nazwa)}</button>`).join('')}
+        <button type="button" class="chip" data-akcja="przypisz" data-v="" aria-pressed="${!f.budzet && !f.cel}">${miedzy ? 'Bez celu' : 'Bez przypisania'}</button>
+        ${budzety.map(b => `<button type="button" class="chip" data-akcja="przypisz" data-v="${esc(b.id)}" aria-pressed="${f.budzet === b.id}">${esc(b.nazwa)}</button>`).join('')}
+        ${cele.map(b => `<button type="button" class="chip chip-cel" data-akcja="przypisz" data-v="${esc(b.id)}" aria-pressed="${f.cel === b.id}">${ikonaSvg('cele')}${esc(b.nazwa)}</button>`).join('')}
       </div>
-    </fieldset>` : ''}
-    ${cele.length && !czyPlan() ? `<fieldset class="pole">
-      <legend>Cel</legend>
-      <div class="chipy">
-        <button type="button" class="chip" data-akcja="cel" data-v="" aria-pressed="${!f.cel}">Bez celu</button>
-        ${cele.map(b => `<button type="button" class="chip" data-akcja="cel" data-v="${esc(b.id)}" aria-pressed="${f.cel === b.id}">${esc(b.nazwa)}</button>`).join('')}
-      </div>
-    </fieldset>` : ''}`;
+      ${podp ? `<span class="podpowiedz">${esc(podp)}</span>` : ''}
+    </fieldset>`;
 }
 
 function htmlPodpowiedzi() {
@@ -439,12 +446,25 @@ export function renderDodaj(trasa = null, id = null) {
       f.rodzajWpisu = trasa === 'nowa-sub' ? 'powtarzalna' : 'nadchodząca';
       f.subskrypcja = trasa === 'nowa-sub';
     }
+  } else if (trasa === 'nowe-odlozenie') {
+    const c = dane.budzety.find(b => b.id === id);
+    if (f && f.tryb === 'nowy' && f.typ === 'przeksięgowanie' && f.cel === id) { /* formularz już przygotowany */ } else {
+    f = nowyFormularz();
+    f.typ = 'przeksięgowanie';
+    if (c) {
+      f.cel = c.id;
+      const kc = kontoCelu(c);
+      if (konta().some(k => k.nazwa === kc)) f.konto_docelowe = kc;
+      if (f.konto === kc) f.konto = konta().find(k => !k.wirtualne)?.nazwa || f.konto;
+    }
+    }
   } else if (trasa === 'nowa-pozyczka') {
     if (!f || f.tryb === 'edycja' || f.typ !== 'pożyczka') { f = nowyFormularz(); f.typ = 'pożyczka'; }
   } else if (!f || f.tryb === 'edycja') {
     f = nowyFormularz();
   }
-  if (!f.konto && konta().length) f.konto = konta()[0].nazwa;
+  if (!f.konto && konta().length) f.konto = konta().find(k => !k.wirtualne)?.nazwa || konta()[0].nazwa;
+  if (!f.podmiot && f.konto) f.podmiot = podmiotKonta(f.konto);
   if (czyMiedzyKontami() || f.podzial || czyPozyczka()) f.rodzajWpisu = f.planId ? f.rodzajWpisu : 'zwykła';
   podpowiedzi = [];
 
@@ -544,7 +564,8 @@ export function renderDodaj(trasa = null, id = null) {
         ${miedzy ? '' : `<fieldset class="pole">
           <legend>Dotyczy</legend>
           <div class="chipy">${podmioty().map(p => `
-            <button type="button" class="chip" data-akcja="podmiot" data-v="${esc(p)}" aria-pressed="${f.podmiot === p}">${esc(p === 'wspólne' ? 'Wspólne' : p)}</button>`).join('')}</div>
+            <button type="button" class="chip ${p === PRYWATNE ? 'chip-prywatny' : ''}" data-akcja="podmiot" data-v="${esc(p)}" aria-pressed="${f.podmiot === p}">${esc(p)}</button>`).join('')}</div>
+          ${f.podmiot === PRYWATNE ? '<span class="podpowiedz">Prywatne: zapisane, ale pomijane w podsumowaniach, budżetach i bilansie.</span>' : ''}
         </fieldset>`}
       </div>
 
@@ -616,6 +637,7 @@ export function obsluzKlik(e) {
     case 'rodzaj-wpisu': f.rodzajWpisu = v; if (v !== 'zwykła' && f.data < dataLok()) f.data = dataLok(); break;
     case 'konto':
       f.konto = v; f.waluta = '';
+      if (podmiotKonta(v) && f.tryb === 'nowy') f.podmiot = podmiotKonta(v);
       if (f.konto_docelowe === v || (f.typ === 'wymiana' && walutaKonta(f.konto_docelowe) === walutaFormularza())) f.konto_docelowe = '';
       break;
     case 'konto_docelowe': f.konto_docelowe = v; break;
@@ -625,9 +647,18 @@ export function obsluzKlik(e) {
       f.kategoria = v; f.podpowiedz = '';
       break;
     case 'podkategoria': f.podkategoria = f.podkategoria === v ? '' : v; break;
-    case 'podmiot': f.podmiot = f.podmiot === v ? '' : v; break;
-    case 'budzet': f.budzet = v; break;
-    case 'cel': f.cel = v; break;
+    case 'podmiot': f.podmiot = v; break;
+    case 'przypisz': {
+      const b = dane.budzety.find(x => x.id === v);
+      if (b?.rodzaj === 'cel') {
+        f.cel = v; f.budzet = '';
+        if (czyMiedzyKontami()) {
+          const kc = kontoCelu(b);
+          if (kc !== f.konto && konta().some(k => k.nazwa === kc)) f.konto_docelowe = kc;
+        }
+      } else { f.budzet = v; f.cel = ''; }
+      break;
+    }
     case 'data': f.data = dodajDni(dataLok(), Number(v)); break;
     case 'tytul': {
       const p = podpowiedzi[Number(v)];
@@ -753,6 +784,7 @@ function blad(kwota) {
     const p = f.pozyczka;
     if (!f.kontrahent.trim()) return 'Wpisz, kogo dotyczy pożyczka.';
     if (zakupZaMnie() && !f.kategoria) return 'Wybierz kategorię zakupu.';
+    if (!f.podmiot) return 'Wybierz, czego dotyczy: INCO, OFI czy Prywatne.';
     if (!zakupZaMnie() && !f.konto) return 'Wybierz konto.';
     if (p.zwrot === 'jednorazowo' && !p.termin) return 'Wybierz termin zwrotu.';
     if (p.zwrot === 'raty' && !(Number(p.liczba_rat) >= 1 && Number(p.liczba_rat) <= 120)) return 'Liczba rat musi być od 1 do 120.';
@@ -774,9 +806,11 @@ function blad(kwota) {
     if (f.podzial.some(c => !c.kategoria)) return 'Wybierz kategorię w każdej części.';
     if (f.podzial.some(c => !(liczba(c.kwota) > 0))) return 'Wpisz kwotę w każdej części.';
     if (Math.abs(sumaPodzialu() - kwota) >= 0.005) return 'Suma części musi być równa kwocie transakcji.';
+    if (!f.podmiot) return 'Wybierz, czego dotyczy: INCO, OFI czy Prywatne.';
     return null;
   }
   if (!f.kategoria) return f.typ === 'wpływ' ? 'Wybierz źródło przychodu.' : 'Wybierz kategorię.';
+  if (!f.podmiot) return 'Wybierz, czego dotyczy: INCO, OFI czy Prywatne.';
   if (czyPlan() && f.rodzajWpisu === 'powtarzalna' && !(Number(f.co_ile) >= 1)) return 'Podaj, co ile ma się powtarzać.';
   return null;
 }
@@ -810,6 +844,38 @@ async function zapiszPlan(kwota) {
   };
   await sync.zapisz('PLANOWANE', [p]);
   return p;
+}
+
+/**
+ * Wydatek przypisany do celu, którego pieniądze leżą w wirtualnej Skarbonce, zdejmuje tę kwotę ze Skarbonki:
+ * powstaje powiązane przeksięgowanie Skarbonka → konto wydatku (tylko zapis, bez ruchu w banku).
+ * Wydatek i przeksięgowanie łączy pole id_pary wydatku.
+ */
+function zdjecieZeSkarbonki(wiersze) {
+  const wydatki = wiersze.filter(w => w.typ === 'wydatek' && w.status !== 'anulowana');
+  const cel = wydatki[0]?.cel && dane.budzety.find(b => b.id === wydatki[0].cel);
+  const para = wiersze.find(w => w.id_pary)?.id_pary || f.oryginaly.find(o => o.id_pary)?.id_pary || '';
+  const stareNogi = para ? dane.transakcje.filter(t => t.id_pary === para && t.typ.startsWith('przeksięgowanie')) : [];
+  const kc = cel && kontoCelu(cel);
+  const potrzebne = cel && czyWirtualne(kc) && wydatki[0].konto !== kc;
+  if (!potrzebne) {
+    wiersze.forEach(w => { if (w.typ === 'wydatek' && stareNogi.length) w.id_pary = ''; });
+    return stareNogi.map(n => ({ ...n, status: 'anulowana' }));
+  }
+  const id = para || uuid();
+  wiersze.forEach(w => { if (w.typ === 'wydatek') w.id_pary = id; });
+  const kwota = zaokr(wydatki.reduce((s, w) => s + (Number(w.kwota) || 0), 0));
+  const w0 = wydatki[0];
+  const noga = (typ, konto) => {
+    const stara = stareNogi.find(n => n.typ === typ);
+    return {
+      ...(stara || {}), id: stara?.id || uuid(), typ, id_pary: id, podzial_id: '', data_operacji: w0.data_operacji, konto,
+      kwota, waluta: w0.waluta, kurs: w0.waluta === 'PLN' ? 1 : '', kwota_pln: w0.waluta === 'PLN' ? kwota : '',
+      kategoria: '', podkategoria: '', zrodlo_przychodu: '', kontrahent: '', podmiot: '', tagi: '', nr_dokumentu: '',
+      opis: `Z celu: ${cel.nazwa}`, zalacznik: '', budzet: '', cel: '', status: 'bez ruchu na koncie', zrodlo: 'ręczny',
+    };
+  };
+  return [noga('przeksięgowanie-wypływ', kc), noga('przeksięgowanie-wpływ', w0.konto)];
 }
 
 export async function zapiszFormularz() {
@@ -865,7 +931,7 @@ export async function zapiszFormularz() {
       ...kurs(orig, wal, f.data, kw),
       kategoria: f.typ === 'wymiana' ? WYMIANA : '', podkategoria: '', zrodlo_przychodu: '', kontrahent: '', podmiot: '', budzet: '',
       cel: typ === 'przeksięgowanie-wpływ' ? f.cel : '',
-      status: nowyStatus(orig), zrodlo: orig?.zrodlo || 'ręczny',
+      status: czyWirtualne(f.konto) || czyWirtualne(f.konto_docelowe) ? 'bez ruchu na koncie' : nowyStatus(orig), zrodlo: orig?.zrodlo || 'ręczny',
     });
     wiersze = [
       noga(origZ, 'przeksięgowanie-wypływ', f.konto, kwota, waluta),
@@ -911,6 +977,7 @@ export async function zapiszFormularz() {
     }
   }
 
+  if (!czyMiedzyKontami()) wiersze.push(...zdjecieZeSkarbonki(wiersze));
   await sync.zapisz('TRANSAKCJE', wiersze, nowePliki());
   zapamietaj({ konto: f.konto, podmiot: f.podmiot });
   await wczytajDane();
@@ -938,7 +1005,11 @@ async function anuluj() {
      { etykieta: plan ? 'Usuń z planu' : 'Anuluj transakcję', wartosc: true, klasa: 'niebezpieczny' }]);
   if (!tak) return;
   if (plan) await sync.zapisz('PLANOWANE', [{ ...f.planOryginal, status: 'anulowana' }]);
-  else await sync.zapisz('TRANSAKCJE', f.oryginaly.map(o => ({ ...o, status: 'anulowana' })));
+  else {
+    const para = f.oryginaly.find(o => o.id_pary && !o.typ.startsWith('przeksięgowanie'))?.id_pary;
+    const nogi = para ? dane.transakcje.filter(t => t.id_pary === para && t.typ.startsWith('przeksięgowanie')) : [];
+    await sync.zapisz('TRANSAKCJE', [...f.oryginaly, ...nogi].map(o => ({ ...o, status: 'anulowana' })));
+  }
   await wczytajDane();
   toast(plan ? 'Usunięto z planu.' : 'Transakcja anulowana.', 'ok');
   const sub = f.subskrypcja;

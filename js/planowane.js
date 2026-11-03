@@ -3,7 +3,7 @@
 import * as sync from './sync.js';
 import { $, esc, zaokr, kwotaTxt, dataLok, dodajDni, przesunDate, roznicaDni, dataSlownie, dataKrotko, uuid, odmiana, toast, okno, bezSkoku } from './util.js';
 import {
-  dane, wczytajDane, konta, glowne, podmioty, kolorKonta, ikona, kolorKategorii, KOLORY, opisRytmu, aktywnePlanowane, nastepnyTermin, terminy,
+  dane, wczytajDane, konta, glowne, podmioty, kolorKonta, PRYWATNE, kluczPodmiotu, nazwaPodmiotu, kontoCelu, czyWirtualne, ikona, kolorKategorii, KOLORY, opisRytmu, aktywnePlanowane, nastepnyTermin, terminy,
   miesiecznyKoszt, kierunekPlanu, RODZAJE_POZYCZEK, stanPozyczki,
 } from './dane.js';
 import { zaplacRate, cofnijSplate, doZaplatyRaty } from './pozyczki.js';
@@ -13,6 +13,7 @@ import { ikonaSvg } from './ikony.js';
 
 export async function oznaczZaplacone(p) {
   if (p.rodzaj === 'rata') return zaplacRate(p);
+  if (p.typ === 'przeksięgowanie') return odlozNaCel(p);
   const kwota = Number(p.kwota) || 0;
   const waluta = p.waluta || 'PLN';
   const t = {
@@ -30,10 +31,33 @@ export async function oznaczZaplacone(p) {
   return t;
 }
 
+/** Planowane odkładanie na cel: przeksięgowanie z konta na konto celu (zwykle Skarbonka). */
+async function odlozNaCel(p) {
+  const kwota = Number(p.kwota) || 0;
+  const waluta = p.waluta || 'PLN';
+  const para = uuid();
+  const wirtualne = czyWirtualne(p.konto) || czyWirtualne(p.konto_docelowe);
+  const noga = (typ, konto) => ({
+    id: uuid(), typ, id_pary: para, podzial_id: '', data_operacji: dataLok(), konto, kwota, waluta,
+    kurs: waluta === 'PLN' ? 1 : '', kwota_pln: waluta === 'PLN' ? kwota : '', kategoria: '', podkategoria: '', zrodlo_przychodu: '',
+    kontrahent: '', podmiot: '', tagi: '', nr_dokumentu: '', opis: p.nazwa || '', zalacznik: '', budzet: '',
+    cel: typ === 'przeksięgowanie-wpływ' ? p.budzet || '' : '', pozyczka_id: '',
+    planowana_id: p.id, planowany_termin: p.nastepna_data,
+    status: wirtualne ? 'bez ruchu na koncie' : 'oczekuje na wyciąg', zrodlo: 'ręczny',
+  });
+  const nogi = [noga('przeksięgowanie-wypływ', p.konto), noga('przeksięgowanie-wpływ', p.konto_docelowe)];
+  const nastepny = nastepnyTermin(p);
+  const plan = nastepny ? { ...p, nastepna_data: nastepny } : { ...p, status: 'zakończona' };
+  await sync.zapiszWiele([{ karta: 'TRANSAKCJE', wiersze: nogi }, { karta: 'PLANOWANE', wiersze: [plan] }]);
+  await wczytajDane();
+  return nogi[1];
+}
+
 export async function cofnijZaplacone(t) {
   if (t.pozyczka_id) return cofnijSplate(t);
   const p = dane.planowane.find(x => x.id === t.planowana_id);
-  const paczki = [{ karta: 'TRANSAKCJE', wiersze: [{ ...t, status: 'anulowana' }] }];
+  const nogi = t.id_pary && t.typ.startsWith('przeksięgowanie') ? dane.transakcje.filter(x => x.id_pary === t.id_pary) : [t];
+  const paczki = [{ karta: 'TRANSAKCJE', wiersze: nogi.map(x => ({ ...x, status: 'anulowana' })) }];
   if (p) {
     const termin = t.planowany_termin;
     const np = { ...p };
@@ -72,6 +96,7 @@ function relatywnie(d) {
 }
 
 export function wierszPlanu(p) {
+  if (p.typ === 'przeksięgowanie') return wierszOdlozenia(p);
   const rata = p.rodzaj === 'rata';
   const wplyw = kierunekPlanu(p) === 'wpływ';
   const kat = kategoriaPlanu(p);
@@ -98,18 +123,36 @@ export function wierszPlanu(p) {
   </li>`;
 }
 
+function wierszOdlozenia(p) {
+  const cel = dane.budzety.find(b => b.id === p.budzet);
+  return `<li class="wiersz-planu odlozenie ${p.nastepna_data < dataLok() ? 'opozniona' : ''}">
+    <a href="${cel ? `#budzet/${encodeURIComponent(cel.id)}` : '#budzety'}">
+      <span class="ikona" style="--tlo:#DDE8C6" aria-hidden="true">${ikonaSvg('cele')}</span>
+      <span class="srodek"><span class="tytul">${esc(p.nazwa || 'Odkładanie na cel')}</span>
+        <span class="etykiety"><span class="etykieta-konta" style="--k:${esc(kolorKonta(p.konto))}">${esc(p.konto)}</span>
+          <span class="strzalka">→</span><span class="etykieta-konta" style="--k:${esc(kolorKonta(p.konto_docelowe))}">${esc(p.konto_docelowe)}</span></span></span>
+      <span class="kwota-wiersza">${esc(kwotaTxt(Number(p.kwota), p.waluta))}<small>${esc(opisRytmu(p))}</small></span>
+    </a>
+    <div class="akcje-planu">
+      <button type="button" data-akcja="zaplacone" data-v="${esc(p.id)}">Odłożone?</button>
+      ${p.rodzaj !== 'jednorazowa' ? `<button type="button" class="drugorzedny" data-akcja="pomin" data-v="${esc(p.id)}">Pomiń ten termin</button>` : ''}
+    </div>
+  </li>`;
+}
+
 function wierszRozliczonej(t) {
   const p = dane.planowane.find(x => x.id === t.planowana_id);
   const wplyw = ['wpływ', 'spłata-otrzymana'].includes(t.typ);
+  const odl = t.typ === 'przeksięgowanie-wpływ';
   return `<li class="wiersz-planu rozliczona">
-    <a href="${t.pozyczka_id ? `#pozyczka/${encodeURIComponent(t.pozyczka_id)}` : `#edytuj/${encodeURIComponent(t.id)}`}">
+    <a href="${t.pozyczka_id ? `#pozyczka/${encodeURIComponent(t.pozyczka_id)}` : odl && t.cel ? `#budzet/${encodeURIComponent(t.cel)}` : `#edytuj/${encodeURIComponent(t.id)}`}">
       <span class="ikona" style="--tlo:#E4E7E5" aria-hidden="true">✓</span>
       <span class="srodek"><span class="tytul">${esc(p?.nazwa || t.kontrahent || t.kategoria)}</span>
-        <span class="opis">${esc(wplyw ? 'Wpłynęło' : 'Zapłacone')} ${esc(dataSlownie(t.data_operacji).toLowerCase())}${t.planowany_termin ? `, termin ${esc(dataKrotko(t.planowany_termin))}` : ''}</span></span>
-      <span class="kwota-wiersza">${wplyw ? '+' : '−'}${esc(kwotaTxt(Number(t.kwota), t.waluta))}</span>
+        <span class="opis">${esc(odl ? 'Odłożone' : wplyw ? 'Wpłynęło' : 'Zapłacone')} ${esc(dataSlownie(t.data_operacji).toLowerCase())}${t.planowany_termin ? `, termin ${esc(dataKrotko(t.planowany_termin))}` : ''}</span></span>
+      <span class="kwota-wiersza">${odl ? '' : wplyw ? '+' : '−'}${esc(kwotaTxt(Number(t.kwota), t.waluta))}</span>
     </a>
     <div class="akcje-planu">
-      <button type="button" class="znacznik-przycisk" data-akcja="cofnij" data-v="${esc(t.id)}" title="Cofnij rozliczenie">${esc(wplyw ? 'Wpłynęło' : 'Zapłacone')}, cofnij</button>
+      <button type="button" class="znacznik-przycisk" data-akcja="cofnij" data-v="${esc(t.id)}" title="Cofnij rozliczenie">${esc(odl ? 'Odłożone' : wplyw ? 'Wpłynęło' : 'Zapłacone')}, cofnij</button>
     </div>
   </li>`;
 }
@@ -121,7 +164,7 @@ const stan = {
   rodzaje: new Set(), konta: new Set(), kategorie: new Set(), podmioty: new Set(),
 };
 const OKRESY = [['miesiac', 'Do końca miesiąca'], ['30', '30 dni'], ['90', '3 miesiące'], ['365', '12 miesięcy'], ['wszystko', 'Wszystko']];
-const RODZAJE_PLANU = [['wydatki', 'Wydatki'], ['wplywy', 'Wpływy'], ['subskrypcje', 'Subskrypcje'], ['raty', 'Raty pożyczek']];
+const RODZAJE_PLANU = [['wydatki', 'Wydatki'], ['wplywy', 'Wpływy'], ['subskrypcje', 'Subskrypcje'], ['raty', 'Raty pożyczek'], ['cele', 'Odkładanie na cele']];
 
 function koniecOkresu() {
   const dzis = dataLok();
@@ -133,6 +176,7 @@ function koniecOkresu() {
 }
 
 function rodzajPlanu(p) {
+  if (p.typ === 'przeksięgowanie') return 'cele';
   if (p.rodzaj === 'rata') return 'raty';
   if (p.rodzaj === 'subskrypcja') return 'subskrypcje';
   return kierunekPlanu(p) === 'wpływ' ? 'wplywy' : 'wydatki';
@@ -146,7 +190,7 @@ function poFiltrach() {
     (!stan.rodzaje.size || stan.rodzaje.has(rodzajPlanu(p)))
     && (!stan.konta.size || stan.konta.has(p.konto))
     && (!stan.kategorie.size || stan.kategorie.has(p.kategoria) || stan.kategorie.has(p.zrodlo_przychodu))
-    && (!stan.podmioty.size || stan.podmioty.has(p.podmiot || 'wspólne')));
+    && (!stan.podmioty.size || stan.podmioty.has(kluczPodmiotu(p))));
 }
 
 /** Bilans okresu: zaległe (termin minął, nierozliczone) + nadchodzące do końca okresu. */
@@ -154,7 +198,10 @@ function bilans(lista) {
   const dzis = dataLok();
   const koniec = stan.okres === 'wszystko' ? przesunDate(dzis, 'miesiąc', 12) : koniecOkresu();
   const b = { wplywy: 0, wydatki: 0, zalWpl: 0, zalWyd: 0, nZal: 0, obce: {}, srednio: 0, koniec };
+  const zPrywatnymi = stan.podmioty.has(PRYWATNE);
   lista.forEach(p => {
+    if (kierunekPlanu(p) === 'przesunięcie') return;          // odkładanie na cel nie zmienia bilansu
+    if (p.podmiot === PRYWATNE && !zPrywatnymi) return;      // prywatne pomijamy w bilansie
     const w = p.waluta || 'PLN';
     const wplyw = kierunekPlanu(p) === 'wpływ';
     terminy(p, koniec).forEach((d, i) => {
@@ -175,7 +222,7 @@ function panelFiltrow() {
     ${grupa('rodzaje', 'Rodzaj', RODZAJE_PLANU, stan.rodzaje)}
     ${grupa('konta', 'Konta', konta().map(k => [k.nazwa, k.nazwa, k.kolor]), stan.konta)}
     ${grupa('kategorie', 'Kategorie', [...glowne('wydatek').map(k => [k.nazwa, k.nazwa]), ...glowne('wpływ').map(k => [k.nazwa, k.nazwa + ' (wpływ)'])], stan.kategorie)}
-    ${grupa('podmioty', 'Dotyczy', podmioty().map(p => [p, p === 'wspólne' ? 'Wspólne' : p]), stan.podmioty)}
+    ${grupa('podmioty', 'Dotyczy', [...podmioty(), ''].map(p => [p, nazwaPodmiotu(p)]), stan.podmioty)}
     <div class="przyciski"><button type="button" class="drugorzedny" data-akcja="wyczysc">Wyczyść filtry</button>
       <button type="button" data-akcja="panel">Gotowe</button></div>
   </div>`;
@@ -198,7 +245,7 @@ export function renderPlanowane() {
   const poOkresie = filtrowane.filter(p => p.nastepna_data > koniec).length;
   const dni = new Map();
   wszystkie.forEach(p => { if (!dni.has(p.nastepna_data)) dni.set(p.nastepna_data, []); dni.get(p.nastepna_data).push(p); });
-  const rozliczone = dane.transakcje.filter(t => t.planowana_id && t.status !== 'anulowana' && t.data_operacji >= dodajDni(dzis, -31))
+  const rozliczone = dane.transakcje.filter(t => t.planowana_id && t.status !== 'anulowana' && t.data_operacji >= dodajDni(dzis, -31) && t.typ !== 'przeksięgowanie-wypływ')
     .sort((a, b2) => String(b2.data_operacji).localeCompare(String(a.data_operacji)) || String(b2.utworzono || '').localeCompare(String(a.utworzono || '')));
   const obce = Object.entries(b.obce).filter(([, v]) => Math.abs(v) >= 0.005);
   const nFiltrow = liczbaFiltrow();
@@ -220,7 +267,7 @@ export function renderPlanowane() {
       <div class="${saldo < 0 ? 'minus' : 'plus'} wyroznione"><dt>Bilans</dt><dd>${saldo > 0 ? '+' : ''}${esc(kwotaTxt(saldo))}</dd></div>
       <div class="${b.nZal ? 'minus' : ''}"><dt>W tym zaległe (${b.nZal})</dt><dd>${esc(kwotaTxt(b.zalWpl - b.zalWyd))}</dd></div>
     </dl>
-    <p class="uwagi-podsumowania">${esc(opisOkresu)}, z ratami pożyczek${nFiltrow ? ', według filtrów' : ''}.${b.nZal ? ` Zaległe wpływy ${esc(kwotaTxt(b.zalWpl))}, zaległe wydatki ${esc(kwotaTxt(b.zalWyd))}.` : ''} Pozycje cykliczne średnio miesięcznie: ${b.srednio > 0 ? '+' : ''}${esc(kwotaTxt(zaokr(b.srednio)))}.${obce.length ? ` W innych walutach: ${obce.map(([w, v]) => (v > 0 ? '+' : '') + esc(kwotaTxt(v, w))).join(', ')}.` : ''}</p>
+    <p class="uwagi-podsumowania">${esc(opisOkresu)}, z ratami pożyczek, bez odkładania na cele${stan.podmioty.has(PRYWATNE) ? '' : ' i prywatnych'}${nFiltrow ? ', według filtrów' : ''}.${b.nZal ? ` Zaległe wpływy ${esc(kwotaTxt(b.zalWpl))}, zaległe wydatki ${esc(kwotaTxt(b.zalWyd))}.` : ''} Pozycje cykliczne średnio miesięcznie: ${b.srednio > 0 ? '+' : ''}${esc(kwotaTxt(zaokr(b.srednio)))}.${obce.length ? ` W innych walutach: ${obce.map(([w, v]) => (v > 0 ? '+' : '') + esc(kwotaTxt(v, w))).join(', ')}.` : ''}</p>
     <div class="filtry trzy">
       <div class="zakladki-ekranu" role="tablist">${[['wszystko', 'Wszystko'], ['nadchodzace', 'Nadchodzące'], ['zalegle', 'Zaległe']].map(([z, e]) =>
         `<button type="button" role="tab" data-akcja="zakladka" data-v="${z}" aria-selected="${stan.zakladka === z}">${e}</button>`).join('')}</div>
@@ -355,7 +402,7 @@ async function klikWspolny(e, rysuj) {
     const t = await oznaczZaplacone(p);
     if (t) {
       const wplyw = ['wpływ', 'spłata-otrzymana'].includes(t.typ);
-      toast(`${wplyw ? 'Wpłynęło' : 'Zapłacone'}: ${p.nazwa} ${kwotaTxt(Number(t.kwota), t.waluta)}.`, 'ok', 6000,
+      toast(`${t.typ === 'przeksięgowanie-wpływ' ? 'Odłożone' : wplyw ? 'Wpłynęło' : 'Zapłacone'}: ${p.nazwa} ${kwotaTxt(Number(t.kwota), t.waluta)}.`, 'ok', 6000,
         { etykieta: 'Cofnij', fn: async () => { await cofnijZaplacone(dane.transakcje.find(x => x.id === t.id) || t); bezSkoku(rysuj); } });
     }
   } else if (akcja === 'pomin') {

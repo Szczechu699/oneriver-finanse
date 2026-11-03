@@ -32,8 +32,14 @@ export const KOLORY = ['#CDE6DF', '#F3DDA9', '#E8D2E2', '#D2E3F3', '#DDE8C6', '#
 
 export const konta = (zArchiwum = false) => lista('konta', zArchiwum).map((k, i) => {
   const a = atrybuty(k);
-  return { ...k, waluta: a.waluta || '', kolor: a.kolor || KOLORY_KONT[i % KOLORY_KONT.length], typKonta: a.typ || 'bank' };
+  return {
+    ...k, waluta: a.waluta || '', kolor: a.kolor || KOLORY_KONT[i % KOLORY_KONT.length], typKonta: a.typ || 'bank',
+    podmiot: a.podmiot || '', wirtualne: Boolean(a.wirtualne) || a.typ === 'skarbonka',
+  };
 });
+export const czyWirtualne = nazwa => Boolean(konta(true).find(k => k.nazwa === nazwa)?.wirtualne);
+export const podmiotKonta = nazwa => konta(true).find(k => k.nazwa === nazwa)?.podmiot || '';
+export const SKARBONKA = 'Skarbonka';
 export const walutaKonta = nazwa => konta(true).find(k => k.nazwa === nazwa)?.waluta || '';
 export const kolorKonta = nazwa => konta(true).find(k => k.nazwa === nazwa)?.kolor || '#8A9592';
 export function waluty() {
@@ -47,10 +53,17 @@ export function podrzedne(typ, nazwaRodzica, zArchiwum = false) {
   const rodzic = l.find(k => k.nazwa === nazwaRodzica && !k.rodzic);
   return rodzic ? l.filter(k => k.rodzic === rodzic.id) : [];
 }
+// Podmioty: INCO (firmowe nieoficjalne), OFI (firmowe oficjalne), Prywatne – zapisywane, ale pomijane w analizach.
+export const PRYWATNE = 'Prywatne';
 export function podmioty() {
   const p = lista('podmioty').map(x => x.nazwa);
-  return [...(p.length ? p : ['INCO', 'OFI']), 'wspólne'];
+  const l = p.length ? p : ['INCO', 'OFI'];
+  return l.includes(PRYWATNE) ? l : [...l, PRYWATNE];
 }
+export const czyPrywatna = t => t.podmiot === PRYWATNE;
+/** Etykieta podmiotu; puste i dawne „wspólne” = nieprzypisane. */
+export const kluczPodmiotu = t => (t.podmiot && t.podmiot !== 'wspólne' ? t.podmiot : '');
+export const nazwaPodmiotu = p => p || 'Bez podmiotu';
 
 const IKONY = [
   [/wymian/i, '💱'], [/wysy|paczk|kurier/i, '📦'], [/wypłat|wynagr/i, '👥'], [/czynsz|media/i, '🏠'], [/towar|zakup/i, '🧺'],
@@ -176,6 +189,8 @@ export function stanKont() {
     if (!t.konto || t.status === 'anulowana') continue;
     const s = stan.get(t.konto);
     if (!s) continue;
+    // przesunięcia do Skarbonki to tylko zapis – nie zmieniają salda prawdziwego konta
+    if (t.status === 'bez ruchu na koncie' && !s.konto.wirtualne) continue;
     s.liczba++;
     if (s.odDaty && String(t.data_operacji) < s.odDaty) continue;
     const w = t.waluta || s.konto.waluta || 'PLN';
@@ -235,7 +250,7 @@ export function miesiecznyKoszt(p) {
   return { 'dzień': k * 30.44 / n, 'tydzień': k * 4.345 / n, 'miesiąc': k / n, 'rok': k / 12 / n }[p.powtarzanie || 'miesiąc'] ?? k;
 }
 export const poTerminie = () => aktywnePlanowane().filter(p => p.nastepna_data && p.nastepna_data < dataLok());
-export const kierunekPlanu = p => (p.typ === 'wpływ' || p.typ === 'spłata-otrzymana' ? 'wpływ' : 'wypływ');
+export const kierunekPlanu = p => (p.typ === 'wpływ' || p.typ === 'spłata-otrzymana' ? 'wpływ' : p.typ === 'przeksięgowanie' ? 'przesunięcie' : 'wypływ');
 
 // ── pożyczki ──
 export const RODZAJE_POZYCZEK = {
@@ -296,7 +311,7 @@ export function stanBudzetu(b, dzien = dataLok()) {
   const kat = new Set(kategorieBudzetu(b));
   let wydane = 0, wplywy = 0, bezKursu = 0, liczba = 0;
   for (const t of dane.transakcje) {
-    if (t.status === 'anulowana' || czyPrzeks(t) || czyPozyczkowa(t)) continue;
+    if (t.status === 'anulowana' || czyPrzeks(t) || czyPozyczkowa(t) || czyPrywatna(t)) continue;
     const d = t.data_operacji || '';
     if (b.rodzaj === 'projekt') {
       if (t.budzet !== b.id) continue;
@@ -320,21 +335,29 @@ export function stanBudzetu(b, dzien = dataLok()) {
   };
 }
 
-/** Cel: wpływy i przeksięgowania przypisane do celu zwiększają postęp, wydatki z celu go zmniejszają. */
+export const kontoCelu = c => c.konta || SKARBONKA;
+
+/**
+ * Cel: odłożono = przeksięgowania i wpływy przypisane do celu (minus wycofane z celu),
+ * wydano = wydatki przypisane do celu, zostało w celu = odłożono − wydano.
+ */
 export function stanCelu(c, dzien = dataLok()) {
-  let zebrano = 0, bezKursu = 0, liczba = 0;
+  let zebrano = 0, wydano = 0, bezKursu = 0, liczba = 0;
   for (const t of dane.transakcje) {
     if (t.cel !== c.id || t.status === 'anulowana') continue;
     const k = kwotaPLN(t);
     if (k === null) { bezKursu++; continue; }
     liczba++;
-    zebrano += kierunek(t) === 'wpływ' ? k : -k;
+    if (t.typ === 'wydatek') wydano += k;
+    else if (t.typ === 'wpływ' || t.typ === 'przeksięgowanie-wpływ') zebrano += k;
+    else if (t.typ === 'przeksięgowanie-wypływ') zebrano -= k;
   }
   const kwota = Number(c.kwota) || 0;
   const brakuje = Math.max(0, kwota - zebrano);
   const dni = c.data_do && c.data_do >= dzien ? roznicaDni(c.data_do, dzien) : null;
   return {
-    kwota, zebrano: zaokr(zebrano), brakuje: zaokr(brakuje), procent: kwota > 0 ? Math.max(0, zebrano / kwota) : 0,
+    kwota, zebrano: zaokr(zebrano), wydano: zaokr(wydano), zostalo: zaokr(zebrano - wydano), brakuje: zaokr(brakuje),
+    procent: kwota > 0 ? Math.max(0, zebrano / kwota) : 0,
     bezKursu, liczba, dni, miesiecznie: dni && brakuje > 0 ? zaokr(brakuje / Math.max(1, dni / 30.44)) : null,
   };
 }

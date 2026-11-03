@@ -5,6 +5,7 @@ import { $, $$, esc, zaokr, fmt2, kwotaTxt, dataLok, dodajDni, przesunDate, rozn
 import {
   dane, konta, kolorKonta, glowne, podmioty, ikona, kolorKategorii, czyPrzeks, czyPozyczkowa, kwotaPLN, stanKont,
   aktywnePlanowane, terminy, kierunekPlanu, stanPozyczki, stronaPozyczki, aktywneBudzety, stanBudzetu, stanCelu,
+  PRYWATNE, czyPrywatna, kluczPodmiotu, nazwaPodmiotu,
 } from './dane.js';
 import { filtry as filtryListy } from './lista.js';
 import { ikonaSvg } from './ikony.js';
@@ -47,7 +48,8 @@ function opisZakresu(od, do_) {
 function pasuje(t) {
   if (t.status === 'anulowana') return false;
   if (stan.konta.size && !stan.konta.has(t.konto)) return false;
-  if (stan.podmioty.size && !stan.podmioty.has(t.podmiot || 'wspólne')) return false;
+  if (stan.podmioty.size && !stan.podmioty.has(kluczPodmiotu(t))) return false;
+  if (czyPrywatna(t) && !stan.podmioty.has(PRYWATNE)) return false;   // prywatne tylko na wyraźne życzenie
   if (stan.kategorie.size && !stan.kategorie.has(t.kategoria) && !stan.kategorie.has(t.zrodlo_przychodu)) return false;
   return true;
 }
@@ -224,15 +226,15 @@ function htmlKontrahentow(lista) {
 function htmlPodmiotow(lista) {
   const mapa = new Map();
   lista.forEach(({ t, k }) => {
-    const p = t.podmiot || 'wspólne';
+    const p = kluczPodmiotu(t);
     const e = mapa.get(p) || { wpl: 0, wyd: 0 };
     if (t.typ === 'wpływ') e.wpl += k; else e.wyd += k;
     mapa.set(p, e);
   });
-  const wiersze = podmioty().map(p => [p, mapa.get(p) || { wpl: 0, wyd: 0 }]).filter(([, e]) => e.wpl || e.wyd);
+  const wiersze = [...podmioty(), ''].map(p => [p, mapa.get(p) || { wpl: 0, wyd: 0 }]).filter(([, e]) => e.wpl || e.wyd);
   if (!wiersze.length) return '<p class="pusto">Brak danych w tym okresie.</p>';
   return `<table class="tabela"><thead><tr><th>Dotyczy</th><th class="liczba">Wpływy</th><th class="liczba">Wydatki</th><th class="liczba">Wynik</th></tr></thead>
-    <tbody>${wiersze.map(([p, e]) => `<tr><td>${esc(p === 'wspólne' ? 'Wspólne' : p)}</td><td class="liczba">${esc(kwotaTxt(zaokr(e.wpl)))}</td>
+    <tbody>${wiersze.map(([p, e]) => `<tr><td>${esc(nazwaPodmiotu(p))}</td><td class="liczba">${esc(kwotaTxt(zaokr(e.wpl)))}</td>
       <td class="liczba">${esc(kwotaTxt(zaokr(e.wyd)))}</td><td class="liczba"><b>${esc(kwotaTxt(zaokr(e.wpl - e.wyd)))}</b></td></tr>`).join('')}</tbody></table>`;
 }
 
@@ -249,13 +251,13 @@ function htmlKont() {
 function htmlPlanuIPozyczek() {
   const dzis = dataLok(), za30 = dodajDni(dzis, 30);
   let wpl = 0, wyd = 0, zal = 0;
-  aktywnePlanowane().filter(p => (p.waluta || 'PLN') === 'PLN').forEach(p => terminy(p, za30).forEach(d => {
+  aktywnePlanowane().filter(p => (p.waluta || 'PLN') === 'PLN' && kierunekPlanu(p) !== 'przesunięcie' && p.podmiot !== PRYWATNE).forEach(p => terminy(p, za30).forEach(d => {
     const k = Number(p.kwota) || 0;
     if (d < dzis) zal++;
     if (kierunekPlanu(p) === 'wpływ') wpl += k; else wyd += k;
   }));
   const poz = { 'do-odzyskania': 0, 'do-oddania': 0 };
-  dane.pozyczki.filter(p => p.status === 'aktywna' && (p.waluta || 'PLN') === 'PLN').forEach(p => { poz[stronaPozyczki(p)] += stanPozyczki(p).pozostalo; });
+  dane.pozyczki.filter(p => p.status === 'aktywna' && (p.waluta || 'PLN') === 'PLN' && p.podmiot !== PRYWATNE).forEach(p => { poz[stronaPozyczki(p)] += stanPozyczki(p).pozostalo; });
   return `<dl class="mini">
     <div><dt><a href="#planowane">Planowane wpływy, 30 dni</a></dt><dd>${esc(kwotaTxt(zaokr(wpl)))}</dd></div>
     <div><dt><a href="#planowane">Planowane wydatki, 30 dni</a></dt><dd>${esc(kwotaTxt(zaokr(wyd)))}</dd></div>
@@ -272,10 +274,11 @@ function htmlBudzetow() {
     const cel = b.rodzaj === 'cel';
     const s = cel ? stanCelu(b) : stanBudzetu(b);
     const v = cel ? s.zebrano : s.wydane;
+    const dop = cel && s.wydano ? `, wydano ${kwotaTxt(s.wydano)}` : '';
     const ponad = !cel && v > s.kwota;
     return `<li><a href="#budzet/${encodeURIComponent(b.id)}"><span class="nazwa">${esc(b.nazwa)}</span>
       <span class="pasek"><span style="width:${Math.min(100, s.procent * 100).toFixed(1)}%;${ponad ? 'background:var(--czerwien)' : cel ? 'background:var(--wplyw)' : ''}"></span></span>
-      <span class="wartosc">${esc(kwotaTxt(v))} z ${esc(kwotaTxt(s.kwota))}</span></a></li>`;
+      <span class="wartosc">${cel ? 'odłożono ' : ''}${esc(kwotaTxt(v))} z ${esc(kwotaTxt(s.kwota))}${esc(dop)}</span></a></li>`;
   }).join('')}</ul>`;
 }
 
@@ -284,7 +287,7 @@ function panelFiltrow() {
     `<button type="button" class="chip ${kolor ? 'konto-chip' : ''}" ${kolor ? `style="--k:${esc(kolor)}"` : ''} data-akcja="f-${nazwa}" data-v="${esc(v)}" aria-pressed="${wybrane.has(v)}">${esc(e)}</button>`).join('')}</div></fieldset>`;
   return `<div class="panel-filtrow">
     ${grupa('konta', 'Konta', konta().map(k => [k.nazwa, k.nazwa, k.kolor]), stan.konta)}
-    ${grupa('podmioty', 'Dotyczy', podmioty().map(p => [p, p === 'wspólne' ? 'Wspólne' : p]), stan.podmioty)}
+    ${grupa('podmioty', 'Dotyczy', [...podmioty(), ''].map(p => [p, nazwaPodmiotu(p)]), stan.podmioty)}
     ${grupa('kategorie', 'Kategorie', [...glowne('wydatek').map(k => [k.nazwa, k.nazwa]), ...glowne('wpływ').map(k => [k.nazwa, k.nazwa + ' (wpływ)'])], stan.kategorie)}
     <div class="przyciski"><button type="button" class="drugorzedny" data-akcja="wyczysc">Wyczyść filtry</button>
       <button type="button" data-akcja="panel">Gotowe</button></div>
@@ -345,7 +348,7 @@ export function render() {
       <div class="wskaznik wyroznione"><span class="etykieta-wsk">Wynik</span><b class="${wynik < 0 ? 'minus' : 'plus'}">${wynik > 0 ? '+' : ''}${esc(kwotaTxt(wynik))}</b><span class="zmiana">poprzednio ${esc(kwotaTxt(zaokr(wczesniej.wplywy - wczesniej.wydatki)))}</span></div>
       <div class="wskaznik"><span class="etykieta-wsk">Czeka na wyciąg</span><b>${teraz.czeka}</b><span class="zmiana">${teraz.lista.length} ${odmiana(teraz.lista.length, 'transakcja', 'transakcje', 'transakcji')} w okresie</span></div>
     </div>
-    <p class="uwagi-podsumowania">Bez przeksięgowań, pożyczek i anulowanych${nFiltrow ? ', według filtrów' : ''}. Porównanie ${porownanieDoDzis ? 'do dziś ' : ''}z okresem ${esc(opisZakresu(...poprzedni))}.${teraz.bezKursu ? ` Niewliczone, bo czekają na kurs NBP: ${teraz.bezKursu}.` : ''}</p>
+    <p class="uwagi-podsumowania">${stan.podmioty.has(PRYWATNE) ? 'Z prywatnymi' : 'Bez prywatnych'}, bez przeksięgowań, pożyczek i anulowanych${nFiltrow ? ', według filtrów' : ''}. Porównanie ${porownanieDoDzis ? 'do dziś ' : ''}z okresem ${esc(opisZakresu(...poprzedni))}.${teraz.bezKursu ? ` Niewliczone, bo czekają na kurs NBP: ${teraz.bezKursu}.` : ''}</p>
 
     <div class="siatka-paneli">
       <article class="panel szeroki">
@@ -366,7 +369,7 @@ export function render() {
       <article class="panel"><header><h2>Wydatki według kategorii</h2></header>${htmlRankingu(rankingKategorii(teraz.lista, 'wydatek'), 'wydatek')}</article>
       <article class="panel"><header><h2>Wpływy według źródła</h2></header>${htmlRankingu(rankingKategorii(teraz.lista, 'wpływ'), 'wpływ')}</article>
       <article class="panel"><header><h2>Najwięksi odbiorcy wydatków</h2></header>${htmlKontrahentow(teraz.lista)}</article>
-      <article class="panel"><header><h2>INCO, OFI i wspólne</h2></header>${htmlPodmiotow(teraz.lista)}</article>
+      <article class="panel"><header><h2>INCO i OFI</h2></header>${htmlPodmiotow(teraz.lista)}</article>
       <article class="panel"><header><h2>Salda kont</h2><span class="podtytul">stan na dziś</span></header>${htmlKont()}</article>
       <article class="panel"><header><h2>Planowane i pożyczki</h2><span class="podtytul">od dziś</span></header>${htmlPlanuIPozyczek()}</article>
       <article class="panel szeroki"><header><h2>Budżety i cele</h2></header>${htmlBudzetow()}</article>

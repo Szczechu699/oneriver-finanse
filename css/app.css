@@ -727,3 +727,15 @@ button.pozycja-rankingu:hover { background: var(--papier-2); }
 .lista-budzetow .pasek { margin: 0; }
 .lista-budzetow .wartosc { font-size: 14px; color: var(--szary); }
 .dymek[hidden], .wykres .krzyz[hidden] { display: none; }
+
+/* wersja 0.5: prywatne, cele */
+.chip-prywatny { border-style: dashed; }
+.chip.chip-prywatny[aria-pressed="true"] { background: #6B7471; border-color: #6B7471; }
+li.prywatna { background: repeating-linear-gradient(135deg, var(--papier), var(--papier) 10px, var(--papier-2) 10px, var(--papier-2) 20px); }
+li.prywatna .kwota-wiersza { color: var(--szary) !important; }
+.etykieta-podmiotu.prywatna { border-style: dashed; }
+.chip-cel { display: inline-flex; align-items: center; gap: 6px; }
+.chip-cel .ik { width: 18px; height: 18px; }
+.wiersz-planu.odlozenie .ikona .ik { width: 22px; height: 22px; color: #3B6B3F; }
+.akcje-celu { display: flex; align-items: center; gap: 14px; margin-top: 6px; }
+.akcje-celu .przycisk-maly { display: inline-flex; align-items: center; text-decoration: none; }

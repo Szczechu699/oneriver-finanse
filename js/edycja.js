@@ -4,7 +4,7 @@ import * as sync from './sync.js';
 import { $, $$, esc, zaokr, kwotaTxt, dataLok, uuid, liczba, liczbaNaTekst, odmiana, toast, okno, bezSkoku } from './util.js';
 import {
   dane, wczytajDane, atrybuty, aktywna, lista, konta, KOLORY_KONT, KOLORY, waluty, glowne, podrzedne, listaKategorii,
-  ikona, kolorKategorii, tytuly, stanKont, kategorieBudzetu,
+  ikona, kolorKategorii, tytuly, stanKont, kategorieBudzetu, podmioty,
 } from './dane.js';
 import { ikonaSvg } from './ikony.js';
 
@@ -71,7 +71,7 @@ function renderKonta() {
     return `<a class="karta-konta" href="#konto/${encodeURIComponent(k.id)}" style="--k:${esc(k.kolor)}">
       <span class="gora-karty"><b>${esc(k.nazwa)}</b><span>${esc(k.waluta || 'różne waluty')}</span></span>
       <span class="saldo">${salda.length ? salda.map(([w, v]) => `<b class="${v < 0 ? 'minus' : 'plus'}">${esc(kwotaTxt(v, w))}</b>`).join('') : '<span class="pusto">saldo nieustalone</span>'}</span>
-      <span class="dol-karty">${s?.liczba || 0} ${odmiana(s?.liczba || 0, 'transakcja', 'transakcje', 'transakcji')}${s?.odDaty ? `, saldo od ${esc(s.odDaty)}` : ''}</span>
+      <span class="dol-karty">${s?.liczba || 0} ${odmiana(s?.liczba || 0, 'transakcja', 'transakcje', 'transakcji')}${s?.odDaty ? `, saldo od ${esc(s.odDaty)}` : ''}${k.podmiot ? `, domyślnie ${esc(k.podmiot)}` : ''}${k.wirtualne ? ', wirtualne' : ''}</span>
     </a>`;
   };
   $('#widok').innerHTML = `
@@ -95,6 +95,7 @@ function renderKonto(id) {
       klucz: id, oryginal: k, nazwa: k?.nazwa || '', waluta: k ? (a.waluta || '') : 'PLN', typ: a.typ || 'bank',
       kolor: k?.kolor || KOLORY_KONT[konta(true).length % KOLORY_KONT.length], saldo: a.saldo_poczatkowe !== undefined && a.saldo_poczatkowe !== '' ? liczbaNaTekst(a.saldo_poczatkowe) : '',
       data_salda: a.data_salda || '', identyfikator: a.iban || a.email || a.identyfikator || '', aktywne: k ? aktywna(k) : true,
+      podmiot: a.podmiot || '',
     };
   }
   $('#widok').innerHTML = `
@@ -105,8 +106,12 @@ function renderKonto(id) {
       <label class="pole"><span class="etykieta">Nazwa</span><input name="nazwa" value="${esc(kf.nazwa)}" placeholder="np. mBank PLN" autocomplete="off"></label>
       <fieldset class="pole"><legend>Waluta</legend><div class="chipy">${[...waluty(), ''].map(w =>
         `<button type="button" class="chip" data-akcja="k-waluta" data-v="${w}" aria-pressed="${kf.waluta === w}">${w || 'Różne (np. PayPal)'}</button>`).join('')}</div></fieldset>
-      <fieldset class="pole"><legend>Rodzaj</legend><div class="chipy">${[['bank', 'Konto bankowe'], ['karta', 'Karta'], ['portfel', 'Portfel elektroniczny'], ['gotowka', 'Gotówka']].map(([t, e]) =>
-        `<button type="button" class="chip" data-akcja="k-typ" data-v="${t}" aria-pressed="${kf.typ === t}">${e}</button>`).join('')}</div></fieldset>
+      <fieldset class="pole"><legend>Rodzaj</legend><div class="chipy">${[['bank', 'Konto bankowe'], ['karta', 'Karta'], ['portfel', 'Portfel elektroniczny'], ['gotowka', 'Gotówka'], ['skarbonka', 'Skarbonka (wirtualna)']].map(([t, e]) =>
+        `<button type="button" class="chip" data-akcja="k-typ" data-v="${t}" aria-pressed="${kf.typ === t}">${e}</button>`).join('')}</div>
+        ${kf.typ === 'skarbonka' ? '<span class="podpowiedz">Wirtualne konto na cele: przesunięcia do niego nie zmieniają salda prawdziwych kont i nie czekają na wyciąg.</span>' : ''}</fieldset>
+      <fieldset class="pole"><legend>Domyślnie dotyczy</legend><div class="chipy">${[...podmioty(), ''].map(p =>
+        `<button type="button" class="chip" data-akcja="k-podmiot" data-v="${esc(p)}" aria-pressed="${kf.podmiot === p}">${esc(p || 'Bez domyślnego')}</button>`).join('')}</div>
+        <span class="podpowiedz">Podstawi się przy wpisie z tego konta; zawsze można zmienić.</span></fieldset>
       <fieldset class="pole"><legend>Kolor</legend><div class="kolory">${KOLORY_KONT.map(k =>
         `<button type="button" data-akcja="k-kolor" data-v="${k}" aria-pressed="${kf.kolor === k}" style="--k:${k}" aria-label="Kolor ${k}"></button>`).join('')}</div></fieldset>
       <div class="rzad">
@@ -134,7 +139,7 @@ async function zapiszKonto(archiwizuj = null) {
   if (inne) return toast('Konto o takiej nazwie już istnieje.', 'blad');
   const o = kf.oryginal;
   const atr = {
-    waluta: kf.waluta, typ: kf.typ, kolor: kf.kolor,
+    waluta: kf.waluta, typ: kf.typ, kolor: kf.kolor, podmiot: kf.podmiot, wirtualne: kf.typ === 'skarbonka',
     saldo_poczatkowe: kf.saldo === '' ? '' : zaokr(liczba(kf.saldo)), data_salda: kf.data_salda,
     [kf.identyfikator.includes('@') ? 'email' : 'iban']: kf.identyfikator,
   };
@@ -392,6 +397,7 @@ async function klik(e) {
     if (akcja === 'k-waluta') kf.waluta = v;
     else if (akcja === 'k-typ') kf.typ = v;
     else if (akcja === 'k-kolor') kf.kolor = v;
+    else if (akcja === 'k-podmiot') kf.podmiot = v;
     else if (akcja === 'k-archiwum') { await zapiszKonto(kf.aktywne); return; }
     else return;
     bezSkoku(() => renderKonto(kf.klucz));

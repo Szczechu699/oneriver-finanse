@@ -74,10 +74,13 @@ function render() {
   $$('.menu .licznik').forEach(z => { z.textContent = opoznione || ''; z.hidden = !opoznione; });
 
   if (ekran === formularz.ekran) {
-    const tryb = widok === 'dodaj'
-      ? ({ plan: 'nowy-plan', sub: 'nowa-sub', pozyczka: 'nowa-pozyczka' }[arg] || null)
-      : widok;
-    ekran.render([tryb, widok === 'dodaj' ? null : arg]);
+    if (widok === 'dodaj' && arg?.startsWith('odloz-')) ekran.render(['nowe-odlozenie', arg.slice(6)]);
+    else {
+      const tryb = widok === 'dodaj'
+        ? ({ plan: 'nowy-plan', sub: 'nowa-sub', pozyczka: 'nowa-pozyczka' }[arg] || null)
+        : widok;
+      ekran.render([tryb, widok === 'dodaj' ? null : arg]);
+    }
   } else {
     ekran.render(arg);
   }

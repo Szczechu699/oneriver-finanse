@@ -5,7 +5,7 @@ import { $, $$, esc, zaokr, kwotaTxt, dataLok, dataSlownie, nazwaMiesiaca, odmia
 import {
   dane, wczytajDane, konta, kolorKonta, glowne, podrzedne, podmioty, ikona, kolorKategorii, czyPrzeks, czyPozyczkowa,
   czyZakupZaMnie, kierunek, kwotaPLN, czekaNaWysylke, grupy, zalaczniki, aktywneBudzety, aktywneCele, okresBudzetu,
-  kategorieBudzetu, RODZAJE_POZYCZEK,
+  kategorieBudzetu, RODZAJE_POZYCZEK, PRYWATNE, czyPrywatna, kluczPodmiotu, nazwaPodmiotu,
 } from './dane.js';
 import { ikonaSvg } from './ikony.js';
 
@@ -63,7 +63,7 @@ function pasuje(g) {
   if (filtry.rodzaje.size && !filtry.rodzaje.has(rodzajGrupy(g))) return false;
   if (filtry.konta.size && !czesci.some(c => filtry.konta.has(c.konto))) return false;
   if (filtry.kategorie.size && !czesci.some(c => filtry.kategorie.has(c.kategoria) || filtry.kategorie.has(c.zrodlo_przychodu))) return false;
-  if (filtry.podmioty.size && !filtry.podmioty.has(t.podmiot || 'wspólne')) return false;
+  if (filtry.podmioty.size && !filtry.podmioty.has(kluczPodmiotu(t))) return false;
   if (filtry.statusy.size && !filtry.statusy.has(t.status)) return false;
   if (filtry.zalaczniki && !zalaczniki(t.zalacznik).length) return false;
   if (filtry.cel && !czesci.some(c => c.cel === filtry.cel)) return false;
@@ -111,8 +111,11 @@ export function render() {
 
   let wplywy = 0, wydatki = 0, bezKursu = 0, czeka = 0;
   const poz = { 'pożyczka-udzielona': 0, 'pożyczka-otrzymana': 0, 'spłata-otrzymana': 0, 'spłata-oddana': 0 };
+  const zPrywatnymi = filtry.podmioty.has(PRYWATNE);
+  let prywatnych = 0;
   widoczneGrupy.forEach(g => g.czesci.forEach(t => {
     if (t.status === 'anulowana' || czyPrzeks(t)) return;
+    if (czyPrywatna(t) && !zPrywatnymi) { prywatnych++; return; }
     if (t.status === 'oczekuje na wyciąg') czeka++;
     const k = kwotaPLN(t);
     if (k === null) { bezKursu++; return; }
@@ -148,7 +151,7 @@ export function render() {
       </dl>
       <p class="uwagi-podsumowania">${[
         nFiltrow || filtry.szukaj ? 'Według filtrów' : '',
-        'Bez przeksięgowań, pożyczek i anulowanych',
+        zPrywatnymi ? 'Bez przeksięgowań, pożyczek i anulowanych' : 'Bez prywatnych, przeksięgowań, pożyczek i anulowanych',
         czeka ? `${czeka} ${odmiana(czeka, 'transakcja czeka', 'transakcje czekają', 'transakcji czeka')} na wyciąg` : '',
         bezKursu ? `Niewliczone, bo czekają na kurs NBP: ${bezKursu}` : '',
       ].filter(Boolean).map(esc).join('. ')}.${jestPozyczek ? `<br>Pożyczki: udzielone ${esc(kwotaTxt(poz['pożyczka-udzielona']))}, otrzymane ${esc(kwotaTxt(poz['pożyczka-otrzymana']))}; zwroty do mnie ${esc(kwotaTxt(poz['spłata-otrzymana']))}, moje spłaty ${esc(kwotaTxt(poz['spłata-oddana']))}.` : ''}</p>
@@ -185,7 +188,7 @@ function panelFiltrow() {
     ${grupaChipow('rodzaje', 'Rodzaj', RODZAJE, filtry.rodzaje)}
     ${grupaChipow('konta', 'Konta', konta().map(k => [k.nazwa, k.nazwa, k.kolor]), filtry.konta)}
     ${grupaChipow('kategorie', 'Kategorie', kategorie, filtry.kategorie)}
-    ${grupaChipow('podmioty', 'Dotyczy', podmioty().map(p => [p, p === 'wspólne' ? 'Wspólne' : p]), filtry.podmioty)}
+    ${grupaChipow('podmioty', 'Dotyczy', [...podmioty(), ''].map(p => [p, nazwaPodmiotu(p)]), filtry.podmioty)}
     ${grupaChipow('statusy', 'Status', STATUSY, filtry.statusy)}
     <div class="rzad">
       ${budzety.length ? `<label class="pole"><span class="etykieta">Budżet</span><select name="f-budzet">
@@ -256,7 +259,7 @@ function wiersz(g) {
     klasa = typ === 'wpływ' ? 'plus' : 'minus';
     ik = ikona(kat(t), typ); tlo = kolorKategorii(kat(t), typ);
   }
-  if (t.podmiot && t.podmiot !== 'wspólne') etykiety.push(`<span class="etykieta-podmiotu">${esc(t.podmiot)}</span>`);
+  if (kluczPodmiotu(t)) etykiety.push(`<span class="etykieta-podmiotu ${czyPrywatna(t) ? 'prywatna' : ''}">${esc(t.podmiot)}</span>`);
   const budzet = t.budzet && dane.budzety.find(b => b.id === t.budzet);
   const celB = g.czesci.map(c => c.cel).find(Boolean);
   const celN = celB && dane.budzety.find(b => b.id === celB);
@@ -272,7 +275,7 @@ function wiersz(g) {
     g.czesci.some(czekaNaWysylke) ? '<span class="znacznik wysylka">do wysłania</span>' : '',
   ].join('');
   const wybrana = zaznaczone.has(t.id);
-  return `<li class="${t.status === 'anulowana' ? 'anulowana' : ''} ${klasa.startsWith('pozyczka') ? klasa : ''} ${wybrana ? 'wybrana' : ''}">
+  return `<li class="${t.status === 'anulowana' ? 'anulowana' : ''} ${klasa.startsWith('pozyczka') ? klasa : ''} ${czyPrywatna(t) ? 'prywatna' : ''} ${wybrana ? 'wybrana' : ''}">
     <a href="${cel}" data-grupa="${esc(t.id)}" ${zaznaczanie ? `role="checkbox" aria-checked="${wybrana}"` : ''}>
       ${zaznaczanie ? `<span class="pole-wyboru" aria-hidden="true">${wybrana ? '✓' : ''}</span>` : ''}
       <span class="ikona" style="--tlo:${esc(tlo)}" aria-hidden="true">${esc(ik)}</span>
