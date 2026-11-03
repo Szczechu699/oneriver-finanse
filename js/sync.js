@@ -12,6 +12,8 @@ export const KLUCZE = {
   PLANOWANE: r => String(r.id),
   BUDZETY: r => String(r.id),
   POZYCZKI: r => String(r.id),
+  SPRZEDAZ_SGT: r => `${r.podmiot}|${r.dok_id}`,
+  SPRZEDAZ_SGT_POZ: r => `${r.podmiot}|${r.ob_id}`,
 };
 let kartyPobierane = Object.keys(KLUCZE);
 
@@ -54,7 +56,7 @@ export async function zapiszWiele(paczki, pliki = []) {
     if (!wiersze.length) continue;
     const klucz = KLUCZE[karta];
     await db.zapiszWiersze(karta, wiersze, klucz);
-    for (const w of wiersze) await db.kolejkaDodaj(karta, klucz(w), w);
+    await db.kolejkaDodajWiele(karta, wiersze.map(w => [klucz(w), w]));
   }
   await odswiezLicznik();
   synchronizuj().catch(() => {});

@@ -76,6 +76,15 @@ export async function kolejkaDodaj(karta, klucz, wiersz) {
   });
 }
 
+export async function kolejkaDodajWiele(karta, pozycje) {
+  if (!pozycje.length) return;
+  return transakcja(['kolejka'], 'readwrite', t => {
+    const s = t.objectStore('kolejka');
+    const dodano = Date.now();
+    pozycje.forEach(([klucz, wiersz]) => s.add({ karta, klucz, wiersz, dodano }));
+  });
+}
+
 export async function kolejka() {
   return transakcja(['kolejka'], 'readonly', t => zadanie(t.objectStore('kolejka').getAll()));
 }

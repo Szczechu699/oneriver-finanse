@@ -6,8 +6,8 @@ import { ustawienia, zapiszUstawienia, skonfigurowane, wywolaj, wersjaApi } from
 import { $, esc, toast, okno } from './util.js';
 import { dane, wczytajDane, konta } from './dane.js';
 
-export const WERSJA = '0.5.0';
-export const WYMAGANE_API = 3;
+export const WERSJA = '0.6.0';
+export const WYMAGANE_API = 4;
 
 export function render(komunikat = '') {
   const u = ustawienia();
@@ -21,7 +21,7 @@ export function render(komunikat = '') {
       <p>Wpisz adres API i token z arkusza „One River – Finanse”. Zapiszą się tylko na tym urządzeniu.</p>
     </div>` : `<h1>Ustawienia</h1>`}
 
-    ${!pierwszy && api && api < WYMAGANE_API ? `<div class="pasek-edycji"><span>Skrypt arkusza ma wersję ${api}, a ta wersja aplikacji potrzebuje ${WYMAGANE_API}. Wklej nowy plik Kod.gs w Apps Script i wdroż nową wersję. Do tego czasu pożyczki zapisują się tylko na tym urządzeniu.</span></div>` : ''}
+    ${!pierwszy && api && api < WYMAGANE_API ? `<div class="pasek-edycji"><span>Skrypt arkusza ma wersję ${api}, a ta wersja aplikacji potrzebuje ${WYMAGANE_API}. Wklej nowy plik Kod.gs w Apps Script i wdroż nową wersję. Do tego czasu nowe moduły (pożyczki, sprzedaż z Subiektu) mogą nie zapisywać się w arkuszu.</span></div>` : ''}
 
     <form class="karta-ustawien" data-forma="polaczenie" novalidate>
       <h2>Połączenie z arkuszem</h2>

@@ -739,3 +739,32 @@ li.prywatna .kwota-wiersza { color: var(--szary) !important; }
 .wiersz-planu.odlozenie .ikona .ik { width: 22px; height: 22px; color: #3B6B3F; }
 .akcje-celu { display: flex; align-items: center; gap: 14px; margin-top: 6px; }
 .akcje-celu .przycisk-maly { display: inline-flex; align-items: center; text-decoration: none; }
+
+/* ───────── wersja 0.6: sprzedaż z Subiektu ───────── */
+.akcja-naglowka { display: inline-flex; align-items: center; text-decoration: none; }
+.sprzedaz-ekran .naglowek-sekcji .okres-tytul { margin-right: auto; }
+.pozycja-rankingu.bez-ikony { grid-template-columns: 1fr auto; }
+.lista-paragonow { display: grid; }
+.paragon { border-bottom: 1px solid var(--linia); }
+.paragon:last-child { border-bottom: 0; }
+.paragon summary {
+  display: grid; grid-template-columns: 64px 1fr auto auto; gap: 12px; align-items: center;
+  padding: 10px 4px; cursor: pointer; list-style: none;
+}
+.paragon summary::-webkit-details-marker { display: none; }
+.paragon summary:hover { background: var(--papier-2); border-radius: 10px; }
+.paragon-data { color: var(--szary); font-size: 14px; }
+.paragon-opis { display: grid; min-width: 0; }
+.paragon-opis span { font-size: 13.5px; color: var(--szary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.paragon-forma { font-size: 13.5px; color: var(--szary); }
+.paragon-kwota { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.paragon[open] { padding-bottom: 10px; }
+.paragon .tabela { margin: 4px 0 6px; }
+@media (max-width: 640px) {
+  .paragon summary { grid-template-columns: 52px 1fr auto; }
+  .paragon-forma { display: none; }
+}
+.kroki-wklejania { margin: 0 0 16px; padding-left: 22px; display: grid; gap: 6px; }
+.sprzedaz-wklej textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; white-space: pre; }
+.sprzedaz-wklej h3 { font-size: 15px; margin: 14px 0 6px; color: var(--szary); }
+kbd { font: 600 12.5px ui-monospace, Menlo, Consolas, monospace; padding: 1px 6px; border: 1px solid var(--linia); border-bottom-width: 2px; border-radius: 6px; background: var(--papier-2); }

@@ -13,6 +13,7 @@ import { ekranBudzety, ekranBudzet } from './budzety.js';
 import { ekranDane, ekranKonta, ekranKonto, ekranKategorie, ekranKategoria, ekranTytuly } from './edycja.js';
 import { ekran as ekranUstawien } from './ustawienia.js';
 import { ekran as ekranPodsumowania } from './podsumowanie.js';
+import { ekran as ekranSprzedazy } from './sprzedaz.js';
 
 // Pozycje menu: [trasa, etykieta, ikona, na telefonie w dolnym pasku?]
 const MENU = [
@@ -20,6 +21,7 @@ const MENU = [
   ['dodaj', 'Dodaj', 'dodaj', true],
   ['lista', 'Transakcje', 'lista', true],
   ['planowane', 'Planowane', 'planowane', true],
+  ['sprzedaz', 'Sprzedaż', 'sprzedaz', false],
   ['subskrypcje', 'Subskrypcje', 'subskrypcje', false],
   ['pozyczki', 'Pożyczki', 'pozyczki', false],
   ['budzety', 'Budżety i cele', 'budzety', false],
@@ -30,7 +32,7 @@ const MENU = [
 // Trasa → [ekran, zakładka menu]
 const TRASY = {
   dodaj: [formularz.ekran, 'dodaj'], edytuj: [formularz.ekran, 'lista'], plan: [formularz.ekran, 'planowane'],
-  lista: [ekranListy, 'lista'], podsumowanie: [ekranPodsumowania, 'podsumowanie'],
+  lista: [ekranListy, 'lista'], podsumowanie: [ekranPodsumowania, 'podsumowanie'], sprzedaz: [ekranSprzedazy, 'sprzedaz'],
   planowane: [ekranPlanowane, 'planowane'], subskrypcje: [ekranSubskrypcje, 'subskrypcje'],
   pozyczki: [ekranPozyczek, 'pozyczki'], pozyczka: [ekranPozyczek, 'pozyczki'],
   budzety: [ekranBudzety, 'budzety'], budzet: [ekranBudzet, 'budzety'],

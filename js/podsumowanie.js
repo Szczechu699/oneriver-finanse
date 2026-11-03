@@ -81,7 +81,7 @@ function zmiana(teraz, wczesniej) {
 
 // ── przedziały czasu na wykresie ──
 
-function przedzialy(od, do_) {
+export function przedzialy(od, do_) {
   const dni = roznicaDni(do_, od) + 1;
   const wynik = [];
   if (dni <= 35) {
