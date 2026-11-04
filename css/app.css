@@ -842,3 +842,13 @@ kbd { font: 600 12.5px ui-monospace, Menlo, Consolas, monospace; padding: 1px 6p
 .pasek-zapisu-importu button { min-height: 46px; padding: 8px 20px; border-radius: var(--r); border: 0; background: var(--rzeka); color: #fff; font-weight: 700; }
 .pasek-zapisu-importu button:disabled { opacity: .45; }
 @media (max-width: 760px) { .pasek-zapisu-importu { bottom: 64px; } }
+
+.banki-importu { margin: 0 0 14px; padding-left: 20px; display: grid; gap: 6px; }
+.lista-sekcji { list-style: none; margin: 0; padding: 0; background: var(--papier); border: 1px solid var(--linia); border-radius: var(--r-duzy); }
+.sekcja-wyciagu { display: grid; grid-template-columns: 56px 1fr auto; gap: 12px; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--linia); }
+.sekcja-wyciagu:last-child { border-bottom: 0; }
+.sekcja-wyciagu.pusta { opacity: .55; }
+.sekcja-wyciagu.zrobiona .waluta-sekcji::after { content: ' ✓'; color: var(--wplyw); }
+.waluta-sekcji { font-family: var(--font-liczby); font-size: 20px; }
+.opis-sekcji { display: grid; gap: 2px; }
+.opis-sekcji .podpowiedz { margin: 0; }

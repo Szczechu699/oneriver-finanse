@@ -118,13 +118,169 @@ function parsujMbank(tekst) {
     });
   }
   return {
-    bank: 'mBank', iban, nazwaRachunku, operacje,
-    od: okres ? `${okres[3]}-${okres[2]}-${okres[1]}` : '', do: okres ? `${okres[6]}-${okres[5]}-${okres[4]}` : '',
-    kontrola: sumy ? { waluta: sumy[1], wplywy: kwotaZTekstu(sumy[2])?.kwota ?? null, wydatki: kwotaZTekstu(sumy[3])?.kwota ?? null } : null,
+    bank: 'mBank',
+    sekcje: [{
+      waluta: sumy?.[1] || operacje[0]?.waluta || 'PLN', ibany: iban ? [iban] : [], nazwaRachunku, operacje,
+      od: okres ? `${okres[3]}-${okres[2]}-${okres[1]}` : '', do: okres ? `${okres[6]}-${okres[5]}-${okres[4]}` : '',
+      kontrola: sumy ? { wplywy: kwotaZTekstu(sumy[2])?.kwota ?? null, wydatki: kwotaZTekstu(sumy[3])?.kwota ?? null } : null,
+    }],
   };
 }
 
-const PARSERY = [parsujMbank];
+// ── Revolut ──
+
+const MIESIACE = { sty: 1, lut: 2, mar: 3, kwi: 4, maj: 5, cze: 6, lip: 7, sie: 8, wrz: 9, 'paź': 10, paz: 10, lis: 11, gru: 12 };
+function dataRevolut(s) {
+  const m = /^(\d{1,2}) (\p{L}{3})\p{L}* (\d{4})$/u.exec(String(s).trim());
+  if (!m || !MIESIACE[m[2].toLowerCase()]) return '';
+  return `${m[3]}-${String(MIESIACE[m[2].toLowerCase()]).padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+}
+const kwotaRevolut = s => {
+  const m = /(-?\d[\d \u00a0]*,\d{2})/.exec(String(s));
+  return m ? Number(m[1].replace(/[ \u00a0]/g, '').replace(',', '.')) : null;
+};
+
+/** Główny opis i linie szczegółów z Revoluta → kontrahent, tytuł, rodzaj. */
+function rozbierzOpisRevolut(glowny, szczegoly, typ = '') {
+  const linia = prefiks => (szczegoly.find(l => l.startsWith(prefiks)) || '').slice(prefiks.length).trim();
+  const ref = linia('Dane referencyjne:');
+  const od = linia('Od:');
+  const doKogo = linia('Do:');
+  const iban = (/,\s*([A-Z]{2}\d{2}[A-Z0-9]{10,30})\s*$/.exec(od) || [])[1] || '';
+  let kontrahent = glowny, tytul = ref, rodzaj = 'inne', uwaga = '';
+  let m;
+  if ((m = /^Przelew (?:od|do):\s*(.+)$/i.exec(glowny))) { kontrahent = m[1]; rodzaj = 'przelew'; }
+  else if ((m = /^Płatność od\s+(.+)$/i.exec(glowny))) { kontrahent = m[1]; rodzaj = 'przelew'; }
+  else if (/^Revolut /.test(glowny) && od) { kontrahent = od.replace(/,\s*[A-Z]{2}\d{2}[A-Z0-9]+$/, ''); rodzaj = 'przelew'; }
+  else if ((m = /^Zasilenie (?:o|z|karty)?\s*(\*\d+)/i.exec(glowny)) || /TOPUP/i.test(typ)) {
+    kontrahent = `Zasilenie ${m ? m[1] : ''}`.trim(); rodzaj = 'zasilenie';
+    uwaga = 'Zasilenie z Twojej karty lub konta – to zwykle przeksięgowanie między Twoimi kontami.';
+  } else if (/Revolut Digital Assets/i.test(glowny)) {
+    kontrahent = 'Revolut Digital Assets'; rodzaj = 'krypto'; tytul = szczegoly[0] || '';
+    uwaga = 'Zakup kryptowalut – możesz go pominąć albo zapisać jako przeksięgowanie na konto inwestycyjne.';
+  } else if (szczegoly.some(l => l.startsWith('Karta:')) || doKogo) { rodzaj = 'karta'; tytul = doKogo; }
+  return { kontrahent: NAZWA_WIELKIMI(kontrahent.replace(/\s+\.$/, '').trim()), tytul, rodzaj, rachunek: iban.replace(/\D/g, ''), uwaga };
+}
+
+let pdfjsObietnica = null;
+function zaladujPdfjs() {
+  if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if (!pdfjsObietnica) {
+    pdfjsObietnica = new Promise((ok, blad) => {
+      const s = document.createElement('script');
+      s.src = 'vendor/pdfjs/pdf.min.js';
+      s.onload = () => { window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdfjs/pdf.worker.min.js'; ok(window.pdfjsLib); };
+      s.onerror = () => { pdfjsObietnica = null; blad(new Error('Nie udało się wczytać czytnika PDF (potrzebny internet przy pierwszym użyciu).')); };
+      document.head.appendChild(s);
+    });
+  }
+  return pdfjsObietnica;
+}
+
+/** Wyciąg Revolut w PDF: osobna część na każdą walutę, tabela Data / Opis / Wydatki / Wpływy / Saldo. */
+async function parsujRevolutPdf(bufor) {
+  const pdfjs = await zaladujPdfjs();
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(bufor) }).promise;
+  const sekcje = new Map();
+  let tekstCaly = '';
+  for (let n = 1; n <= doc.numPages; n++) {
+    const strona = await doc.getPage(n);
+    const elementy = (await strona.getTextContent()).items
+      .filter(i => i.str.trim())
+      .map(i => ({ s: i.str.trim(), x: i.transform[4], y: i.transform[5], h: i.height }));
+    tekstCaly += elementy.map(e => e.s).join(' ') + ' ';
+    const tytul = elementy.find(e => /^Wyciąg [A-Z]{3}$/.test(e.s));
+    if (!tytul) continue;
+    const waluta = tytul.s.slice(-3);
+    if (!sekcje.has(waluta)) sekcje.set(waluta, { waluta, ibany: [], nazwaRachunku: 'Revolut ' + waluta, operacje: [], od: '', do: '', kontrola: null });
+    const sek = sekcje.get(waluta);
+    elementy.filter(e => /^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/.test(e.s)).forEach(e => { if (!sek.ibany.includes(e.s)) sek.ibany.push(e.s); });
+
+    // zestawienie sald (pierwsza strona waluty) – do kontroli sum
+    const konto = elementy.find(e => e.s === 'Konto (rachunek bieżący)');
+    if (konto) {
+      const wiersz = elementy.filter(e => Math.abs(e.y - konto.y) < 1 && e !== konto).sort((a, b) => a.x - b.x).map(e => kwotaRevolut(e.s));
+      if (wiersz.length >= 4) sek.kontrola = { start: wiersz[0], wydatki: -wiersz[1], wplywy: wiersz[2], koniec: wiersz[3] };
+    }
+    const okres = /od (\d{1,2} \p{L}+ \d{4}) do (\d{1,2} \p{L}+ \d{4})/u.exec(elementy.map(e => e.s).join(' '));
+    if (okres) { sek.od = sek.od || dataRevolut(okres[1].replace(/(\p{L}{3})\p{L}*/u, '$1')); sek.do = dataRevolut(okres[2].replace(/(\p{L}{3})\p{L}*/u, '$1')); }
+
+    // tabela operacji
+    const naglData = elementy.find(e => e.s === 'Data' && elementy.some(o => o.s === 'Opis' && Math.abs(o.y - e.y) < 1));
+    if (!naglData) continue;
+    const kol = nazwa => elementy.find(e => e.s === nazwa && Math.abs(e.y - naglData.y) < 1)?.x;
+    const xOpis = kol('Opis'), xWyd = kol('Wydatki'), xWpl = kol('Wpływy');
+    const dol = Math.max(...elementy.filter(e => /^Zgłoś kradzież|^© \d{4} Revolut/.test(e.s)).map(e => e.y), 0) + 4;
+    const tabela = elementy.filter(e => e.y < naglData.y - 1 && e.y > dol);
+    const daty = tabela.filter(e => e.x < xOpis - 2 && e.h > 6 && dataRevolut(e.s)).sort((a, b) => b.y - a.y);
+    daty.forEach((d, i) => {
+      const nastepna = daty[i + 1]?.y ?? dol;
+      const blok = tabela.filter(e => e.y <= d.y + 1 && e.y > nastepna + 1 && e !== d);
+      const wKolumnie = (od, do_) => blok.filter(e => e.x >= od - 2 && e.x < do_ - 2).sort((a, b) => b.y - a.y);
+      const opisy = wKolumnie(xOpis, xWyd);
+      const glowny = opisy.find(e => e.h > 6)?.s || '';
+      const szczegoly = opisy.filter(e => e.h <= 6).map(e => e.s);
+      const wyd = wKolumnie(xWyd, xWpl);
+      const wpl = wKolumnie(xWpl, xWpl + 75);
+      const kwWyd = kwotaRevolut(wyd.find(e => e.h > 6)?.s);
+      const kwWpl = kwotaRevolut(wpl.find(e => e.h > 6)?.s);
+      const kwota = kwWyd != null ? -kwWyd : kwWpl;
+      if (kwota == null) return;
+      const oryginal = [...wyd, ...wpl].find(e => e.h <= 6)?.s || '';
+      const r = rozbierzOpisRevolut(glowny, szczegoly);
+      const opis = [glowny, ...szczegoly.filter(l => !l.startsWith('Karta:'))].join(' · ') + (oryginal ? ` · ${oryginal}` : '');
+      sek.operacje.push({
+        data: dataRevolut(d.s), data_ksiegowania: '', opis, kwota, waluta, kategoria_banku: '', rodzajOp: r.rodzaj,
+        ...r, tytul: r.tytul || (oryginal ? `oryginalnie ${oryginal}` : ''), surowy: [d.s, glowny, ...szczegoly, kwWyd ?? '', kwWpl ?? '', oryginal].join(' | '),
+      });
+    });
+  }
+  if (!/Revolut/.test(tekstCaly)) return null;
+  const lista_ = [...sekcje.values()];
+  lista_.forEach(s => s.operacje.sort((a, b) => b.data.localeCompare(a.data)));
+  return { bank: 'Revolut', sekcje: lista_ };
+}
+
+/** Revolut CSV (eksport z aplikacji, nagłówki po angielsku albo po polsku). */
+function parsujRevolutCsv(tekst) {
+  const linie = tekst.replace(/^\uFEFF/, '').split(/\r?\n/).filter(l => l.trim());
+  if (!linie.length) return null;
+  const nagl = podzielCsv(linie[0], ',').map(c => c.trim().toLowerCase());
+  const kol = (...nazwy) => nagl.findIndex(c => nazwy.includes(c));
+  const k = {
+    typ: kol('type', 'typ'), produkt: kol('product', 'produkt'), data: kol('completed date', 'data zakończenia', 'data zakonczenia'),
+    start: kol('started date', 'data rozpoczęcia'), opis: kol('description', 'opis'), kwota: kol('amount', 'kwota'),
+    oplata: kol('fee', 'opłata', 'oplata'), waluta: kol('currency', 'waluta'), stan: kol('state', 'stan'),
+  };
+  if (k.opis < 0 || k.kwota < 0 || k.waluta < 0 || (k.data < 0 && k.start < 0)) return null;
+  const sekcje = new Map();
+  for (const l of linie.slice(1)) {
+    const c = podzielCsv(l, ',');
+    const stan = String(c[k.stan] ?? '').toUpperCase();
+    if (stan && !/COMPLETED|ZAKOŃCZON|ZAKONCZON/.test(stan)) continue;
+    const produkt = String(c[k.produkt] ?? '');
+    if (produkt && !/current|bieżąc|biezac/i.test(produkt)) continue;
+    const waluta = String(c[k.waluta]).trim();
+    const kwota = zaokr(Number(c[k.kwota]) - (k.oplata >= 0 ? Number(c[k.oplata]) || 0 : 0));
+    if (!isFinite(kwota) || !waluta) continue;
+    const data = String(c[k.data] || c[k.start] || '').slice(0, 10);
+    const opis = String(c[k.opis] || '').trim();
+    const typ = String(c[k.typ] || '');
+    if (!sekcje.has(waluta)) sekcje.set(waluta, { waluta, ibany: [], nazwaRachunku: 'Revolut ' + waluta, operacje: [], od: '', do: '', kontrola: null });
+    const r = rozbierzOpisRevolut(opis, [], typ);
+    if (/EXCHANGE|WYMIANA/i.test(typ)) { r.rodzaj = 'wymiana'; r.uwaga = 'Wymiana walut w Revolucie – zapisz jako przeksięgowanie między kontami Revolut.'; }
+    sekcje.get(waluta).operacje.push({ data, data_ksiegowania: '', opis: `${typ} · ${opis}`, kwota, waluta, kategoria_banku: typ, rodzajOp: r.rodzaj, ...r, tytul: r.tytul || '', surowy: l });
+  }
+  if (!sekcje.size) return null;
+  const lista_ = [...sekcje.values()];
+  lista_.forEach(s => {
+    s.operacje.sort((a, b) => b.data.localeCompare(a.data));
+    s.od = s.operacje.at(-1)?.data || ''; s.do = s.operacje[0]?.data || '';
+  });
+  return { bank: 'Revolut', sekcje: lista_ };
+}
+
+const PARSERY = [parsujMbank, parsujRevolutCsv];
 
 function hasz(s) {
   let h = 5381;
@@ -208,11 +364,24 @@ function podpowiedzKategorii(op) {
   return { kategoria: '', podkategoria: '', zrodlo: '' };
 }
 
-const ibanKonta = k => String(atrybuty(dane.slownik.find(s => s.lista === 'konta' && s.nazwa === k.nazwa)).iban || '').replace(/\D/g, '');
+const normIban = s => String(s || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+const ibanyKonta = k => {
+  const a = atrybuty(dane.slownik.find(s => s.lista === 'konta' && s.nazwa === k.nazwa));
+  return [a.iban, a.iban2].map(normIban).filter(x => x.length >= 10);
+};
+const zgodneIbany = (a, b) => {
+  const x = normIban(a).replace(/^[A-Z]{2}(?=\d{2})/, ''), y = normIban(b).replace(/^[A-Z]{2}(?=\d{2})/, '');
+  return x.length >= 10 && y.length >= 10 && (x.endsWith(y) || y.endsWith(x));
+};
+/** Konto aplikacji dla części wyciągu: ten sam numer rachunku i ta sama waluta (Revolut ma jeden IBAN dla wszystkich walut). */
+function kontoSekcji(sek) {
+  const pasujace = konta().filter(k => !k.wirtualne && ibanyKonta(k).some(i => sek.ibany.some(j => zgodneIbany(i, j))));
+  return pasujace.find(k => k.waluta === sek.waluta) || (pasujace.length === 1 && !pasujace[0].waluta ? pasujace[0] : null);
+}
 
 // ───────────────────────── stan ekranu ─────────────────────────
 
-let imp = null;   // { plik, wynik parsera, konto, wiersze: [...] }
+let imp = null;   // { plikNazwa, bank, sekcje, zrobione, p: bieżąca część (waluta), konto, wiersze }
 const widok = { filtr: 'wszystkie', zaznaczone: new Set() };
 
 function przygotuj(plikNazwa, p, konto) {
@@ -231,11 +400,17 @@ function przygotuj(plikNazwa, p, konto) {
     if (znane.has(odcisk)) { w.stan = 'juz'; return w; }
     if (pominiete.has(odcisk)) { w.stan = 'pomin'; w.wczesniejPominieta = true; return w; }
     // przelew z / na własne konto zapisane w aplikacji
-    const wlasne = op.rachunek && konta().find(k => k.nazwa !== konto && ibanKonta(k) && ibanKonta(k).endsWith(op.rachunek.slice(-10)));
+    const wlasne = op.rachunek && konta().find(k => k.nazwa !== konto && ibanyKonta(k).some(i => zgodneIbany(i, op.rachunek)));
     if (wlasne) { w.typ = 'przeks'; w.konto2 = wlasne.nazwa; }
     const pk = podpowiedzKategorii(op);
     Object.assign(w, { kategoria: pk.kategoria, podkategoria: pk.podkategoria, podpowiedz: pk.zrodlo });
     if (/przelew własny|spłata karty/i.test(op.kategoria_banku) && !wlasne) w.uwaga = `Bank: „${op.kategoria_banku}” – to może być przeksięgowanie między Twoimi kontami.`;
+    if (op.uwaga && !wlasne) w.uwaga = op.uwaga;
+    if (op.rodzaj === 'wymiana') {
+      const druga = /(?:to|na)\s+([A-Z]{3})\b/.exec(op.opis)?.[1];
+      const k2 = druga && konta().find(k => k.nazwa !== konto && k.waluta === druga && /revolut/i.test(k.nazwa));
+      w.typ = 'przeks'; w.konto2 = k2?.nazwa || '';
+    }
     return w;
   });
 
@@ -254,7 +429,7 @@ function przygotuj(plikNazwa, p, konto) {
     w.jednostka = j;
     uzyte.add(j.id);
   });
-  imp = { plikNazwa, p, konto, wiersze, jednostki };
+  Object.assign(imp, { plikNazwa, p, konto, wiersze, jednostki });
   widok.zaznaczone.clear();
   widok.filtr = 'wszystkie';
 }
@@ -346,8 +521,11 @@ function renderStart() {
     <div class="naglowek-sekcji"><h1>Import wyciągu</h1></div>
     <div class="karta-ustawien">
       <h2>Wybierz plik z banku</h2>
-      <p>Na razie obsługiwany jest <b>mBank</b>: w serwisie wejdź w Historię operacji, ustaw okres (np. cały miesiąc) i pobierz listę operacji jako <b>CSV</b>.</p>
-      <label class="pole"><span class="etykieta">Plik CSV</span><input type="file" name="plik-importu" accept=".csv,text/csv,text/plain"></label>
+      <ul class="banki-importu">
+        <li><b>mBank</b> – Historia operacji → ustaw okres (np. cały miesiąc) → pobierz listę operacji jako <b>CSV</b>.</li>
+        <li><b>Revolut</b> – wyciąg miesięczny w <b>PDF</b> (wszystkie waluty w jednym pliku) albo eksport <b>CSV</b>. Trzymaj się jednego formatu, żeby operacje się nie zdublowały.</li>
+      </ul>
+      <label class="pole"><span class="etykieta">Plik z banku (CSV lub PDF)</span><input type="file" name="plik-importu" accept=".csv,.pdf,text/csv,text/plain,application/pdf"></label>
       <p class="podpowiedz">Najpierw dopiszesz w aplikacji wpisy ręczne, a import je potwierdzi. Operacje, których nie ma w aplikacji, dodasz stąd z kategorią. Ten sam plik można wczytać ponownie – nic się nie zdubluje.</p>
     </div>
     ${ostatnie.length ? `<div class="karta-ustawien"><h2>Ostatnie importy</h2>
@@ -360,14 +538,18 @@ function renderStart() {
 
 function renderKonto() {
   const p = imp.p;
+  const iban = p.ibany[0] || '';
+  const wWalucie = konta().filter(k => !k.wirtualne && (!k.waluta || k.waluta === p.waluta));
+  const pozostale = konta().filter(k => !k.wirtualne && !wWalucie.includes(k));
+  const chip = k => `<button type="button" class="chip konto-chip" style="--k:${esc(k.kolor)}" data-akcja="wybierz-konto" data-v="${esc(k.nazwa)}">${esc(k.nazwa)}</button>`;
   $('#widok').innerHTML = `
   <section class="ekran import-ekran">
     <div class="naglowek-sekcji"><h1>Import wyciągu</h1></div>
     <form class="karta-ustawien" data-forma="konto-importu">
-      <h2>Którego konta dotyczy ten plik?</h2>
-      <p>${esc(p.bank)}: <b>${esc(p.nazwaRachunku || 'rachunek')}</b>${p.iban ? ` (…${esc(p.iban.slice(-4))})` : ''}, ${p.operacje.length} ${odmiana(p.operacje.length, 'operacja', 'operacje', 'operacji')}.</p>
-      <div class="chipy">${konta().filter(k => !k.wirtualne).map(k =>
-        `<button type="button" class="chip konto-chip" style="--k:${esc(k.kolor)}" data-akcja="wybierz-konto" data-v="${esc(k.nazwa)}">${esc(k.nazwa)}</button>`).join('')}</div>
+      <h2>Którego konta dotyczy ten wyciąg?</h2>
+      <p>${esc(imp.bank)}: <b>${esc(p.nazwaRachunku || 'rachunek')}</b>${iban ? ` (…${esc(iban.slice(-4))})` : ''}, waluta ${esc(p.waluta)}, ${p.operacje.length} ${odmiana(p.operacje.length, 'operacja', 'operacje', 'operacji')}.</p>
+      <div class="chipy">${wWalucie.map(chip).join('')}</div>
+      ${pozostale.length ? `<details class="wiecej"><summary>Konta w innych walutach</summary><div class="chipy">${pozostale.map(chip).join('')}</div></details>` : ''}
       <p class="podpowiedz">Zapamiętam numer rachunku przy wybranym koncie – następnym razem konto wybierze się samo.</p>
       <div class="przyciski"><button type="button" class="drugorzedny" data-akcja="anuluj-import">Anuluj</button></div>
     </form>
@@ -386,10 +568,11 @@ function renderPrzeglad() {
   $('#widok').innerHTML = `
   <section class="ekran import-ekran">
     <div class="naglowek-sekcji"><h1>Import wyciągu</h1><span class="okres-tytul">${esc(imp.konto)}</span>
+      ${imp.sekcje.length > 1 ? '<button type="button" class="przycisk-maly drugorzedny akcja-naglowka" data-akcja="do-sekcji">Inne waluty</button>' : ''}
       <button type="button" class="przycisk-maly drugorzedny akcja-naglowka" data-akcja="anuluj-import">Inny plik</button></div>
     <div class="kafle-wskaznikow">
       <div class="wskaznik"><span class="etykieta-wsk">Plik</span><b>${p.operacje.length}</b><span class="zmiana">${esc(p.od ? `${dataKrotko(p.od)} – ${dataKrotko(p.do)} ${p.do.slice(0, 4)}` : imp.plikNazwa)}</span></div>
-      <div class="wskaznik"><span class="etykieta-wsk">Wpływy / wydatki</span><b class="mniejsze">+${esc(kwotaTxt(wplywy))}<br>−${esc(kwotaTxt(-wydatki))}</b><span class="zmiana">${p.kontrola ? (zgodne ? '✓ zgodne z sumami banku' : '⚠ nie zgadza się z sumami banku') : ''}</span></div>
+      <div class="wskaznik"><span class="etykieta-wsk">Wpływy / wydatki</span><b class="mniejsze">+${esc(kwotaTxt(wplywy, p.waluta))}<br>−${esc(kwotaTxt(-wydatki, p.waluta))}</b><span class="zmiana">${p.kontrola ? (zgodne ? '✓ zgodne z sumami banku' : '⚠ nie zgadza się z sumami banku') : ''}${p.kontrola?.koniec != null ? ` · saldo końcowe ${esc(kwotaTxt(p.kontrola.koniec, p.waluta))}` : ''}</span></div>
       <div class="wskaznik ${l.propozycja ? 'wyroznione' : ''}"><span class="etykieta-wsk">Do zatwierdzenia</span><b>${l.propozycja}</b><span class="zmiana">połączone: ${l.dopasowana}</span></div>
       <div class="wskaznik"><span class="etykieta-wsk">Nowe</span><b>${l.nowa}</b><span class="zmiana">${l['bez-kategorii']} bez kategorii · już w aplikacji: ${l.juz}</span></div>
     </div>
@@ -417,10 +600,40 @@ function renderPrzeglad() {
   </section>`;
 }
 
+function renderSekcje() {
+  $('#widok').innerHTML = `
+  <section class="ekran import-ekran">
+    <div class="naglowek-sekcji"><h1>Import wyciągu</h1><span class="okres-tytul">${esc(imp.bank)}</span>
+      <button type="button" class="przycisk-maly drugorzedny akcja-naglowka" data-akcja="anuluj-import">Inny plik</button></div>
+    <p class="uwagi-podsumowania">Plik „${esc(imp.plikNazwa)}” zawiera wyciągi w ${imp.sekcje.length} ${odmiana(imp.sekcje.length, 'walucie', 'walutach', 'walutach')}. Każdą walutę importujesz na osobne konto.</p>
+    <ul class="lista-sekcji">${imp.sekcje.map((s, i) => {
+      const k = kontoSekcji(s);
+      const zrobione = imp.zrobione.has(i);
+      const kontrola = s.kontrola ? `saldo ${kwotaTxt(s.kontrola.start ?? 0, s.waluta)} → ${kwotaTxt(s.kontrola.koniec ?? 0, s.waluta)}` : '';
+      return `<li class="sekcja-wyciagu ${s.operacje.length ? '' : 'pusta'} ${zrobione ? 'zrobiona' : ''}">
+        <b class="waluta-sekcji">${esc(s.waluta)}</b>
+        <span class="opis-sekcji"><span>${s.operacje.length ? `${s.operacje.length} ${odmiana(s.operacje.length, 'operacja', 'operacje', 'operacji')}` : 'bez operacji'}${s.od ? ` · ${esc(dataKrotko(s.od))} – ${esc(dataKrotko(s.do))}` : ''}</span>
+          <span class="podpowiedz">${[k ? `konto: <b>${esc(k.nazwa)}</b>` : (s.operacje.length ? 'konto do wybrania' : ''), kontrola ? esc(kontrola) : ''].filter(Boolean).join(' · ')}</span></span>
+        ${s.operacje.length ? `<button type="button" class="przycisk-maly ${zrobione ? 'drugorzedny' : ''}" data-akcja="sekcja" data-v="${i}">${zrobione ? '✓ Zaimportowano – otwórz' : 'Importuj'}</button>` : ''}
+      </li>`;
+    }).join('')}</ul>
+  </section>`;
+}
+
 function render() {
   if (!imp) renderStart();
+  else if (!imp.p) renderSekcje();
   else if (!imp.konto) renderKonto();
   else renderPrzeglad();
+}
+
+function otworzSekcje(i) {
+  const s = imp.sekcje[i];
+  imp.p = s;
+  imp.sekcjaNr = i;
+  imp.konto = '';
+  const k = kontoSekcji(s);
+  if (k) przygotuj(imp.plikNazwa, s, k.nazwa);
 }
 
 const przerysuj = () => bezSkoku(render);
@@ -485,7 +698,10 @@ async function zapiszImport(b) {
     await sync.zapiszWiele([{ karta: 'TRANSAKCJE', wiersze }, { karta: 'IMPORTY', wiersze: [rekord] }]);
     await wczytajDane();
     toast(`Zapisano import: połączone ${dopasowanych}, dodane ${dodanych}, pominięte ${pominieteTeraz.length}.`, 'ok', 6000);
-    imp = null;
+    if (imp.sekcje.length > 1) {
+      imp.zrobione.add(imp.sekcjaNr);
+      Object.assign(imp, { p: null, konto: '', wiersze: [] });
+    } else imp = null;
     render();
   } catch (e) {
     b.disabled = false;
@@ -494,26 +710,40 @@ async function zapiszImport(b) {
 }
 
 async function zapamietajRachunek(konto) {
-  if (!imp.p.iban) return;
+  const iban = imp.p.ibany[0];
+  if (!iban) return;
   const wiersz = dane.slownik.find(s => s.lista === 'konta' && s.nazwa === konto);
   if (!wiersz) return;
   const a = atrybuty(wiersz);
-  if (String(a.iban || '').replace(/\D/g, '') === imp.p.iban) return;
-  await sync.zapisz('SLOWNIK', [{ ...wiersz, atrybuty: JSON.stringify({ ...a, iban: imp.p.iban }) }]);
+  if ([a.iban, a.iban2].some(x => x && zgodneIbany(x, iban))) return;
+  const nowe = a.iban ? { ...a, iban2: iban } : { ...a, iban };
+  await sync.zapisz('SLOWNIK', [{ ...wiersz, atrybuty: JSON.stringify(nowe) }]);
   await wczytajDane();
 }
 
 // ───────────────────────── zdarzenia ─────────────────────────
 
 async function wczytajPlik(plik) {
-  const tekst = await czytajPlik(plik);
-  let p = null;
-  for (const parser of PARSERY) { p = parser(tekst); if (p) break; }
-  if (!p) { toast('Nie rozpoznaję tego pliku. Na razie obsługiwany jest CSV z mBanku (lista operacji).', 'blad', 7000); return; }
-  if (!p.operacje.length) { toast('W pliku nie ma żadnych operacji.', 'blad'); return; }
-  const konto = p.iban && konta().find(k => ibanKonta(k) === p.iban);
-  imp = { plikNazwa: plik.name, p, konto: '' };
-  if (konto) przygotuj(plik.name, p, konto.nazwa);
+  let wynik = null;
+  try {
+    const poczatek = new Uint8Array(await plik.slice(0, 5).arrayBuffer());
+    if (String.fromCharCode(...poczatek) === '%PDF-') {
+      toast('Czytam PDF…', '', 2500);
+      wynik = await parsujRevolutPdf(await plik.arrayBuffer());
+    } else {
+      const tekst = await czytajPlik(plik);
+      for (const parser of PARSERY) { wynik = parser(tekst); if (wynik) break; }
+    }
+  } catch (e) {
+    toast('Nie udało się odczytać pliku: ' + e.message, 'blad', 7000);
+    return;
+  }
+  if (!wynik) { toast('Nie rozpoznaję tego pliku. Obsługiwane są: mBank (CSV), Revolut (PDF lub CSV).', 'blad', 7000); return; }
+  const sekcje = wynik.sekcje.filter(s => s.operacje.length || s.kontrola).sort((a, b) => (b.operacje.length ? 1 : 0) - (a.operacje.length ? 1 : 0));
+  if (!sekcje.some(s => s.operacje.length)) { toast('W pliku nie ma żadnych operacji.', 'blad'); return; }
+  imp = { plikNazwa: plik.name, bank: wynik.bank, sekcje, zrobione: new Set(), p: null, konto: '', wiersze: [] };
+  const zOperacjami = sekcje.filter(s => s.operacje.length);
+  if (zOperacjami.length === 1) otworzSekcje(sekcje.indexOf(zOperacjami[0]));
   render();
 }
 
@@ -541,6 +771,8 @@ async function klik(e) {
   }
   switch (akcja) {
     case 'anuluj-import': imp = null; break;
+    case 'sekcja': otworzSekcje(Number(v)); break;
+    case 'do-sekcji': Object.assign(imp, { p: null, konto: '', wiersze: [] }); break;
     case 'wybierz-konto':
       przygotuj(imp.plikNazwa, imp.p, v);
       zapamietajRachunek(v).catch(() => {});
