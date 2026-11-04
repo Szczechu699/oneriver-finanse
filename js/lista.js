@@ -5,8 +5,9 @@ import { $, $$, esc, zaokr, kwotaTxt, dataLok, dataSlownie, nazwaMiesiaca, odmia
 import {
   dane, wczytajDane, konta, kolorKonta, glowne, podrzedne, podmioty, ikona, kolorKategorii, czyPrzeks, czyPozyczkowa,
   czyZakupZaMnie, kierunek, kwotaPLN, czekaNaWysylke, grupy, zalaczniki, aktywneBudzety, aktywneCele, okresBudzetu,
-  kategorieBudzetu, RODZAJE_POZYCZEK, PRYWATNE, czyPrywatna, kluczPodmiotu, nazwaPodmiotu,
+  kategorieBudzetu, RODZAJE_POZYCZEK, PRYWATNE, czyPrywatna, kluczPodmiotu, nazwaPodmiotu, czyKorekta,
 } from './dane.js';
+import { czyWplywDoRozliczenia, zostaloWplywu, rozliczonoTransakcji } from './rozliczenia.js';
 import { ikonaSvg } from './ikony.js';
 
 const RODZAJE = [['wydatki', 'Wydatki'], ['wplywy', 'Wpływy'], ['przeksiegowania', 'Przeksięgowania i wymiany'], ['pozyczki', 'Pożyczki i spłaty']];
@@ -114,7 +115,7 @@ export function render() {
   const zPrywatnymi = filtry.podmioty.has(PRYWATNE);
   let prywatnych = 0;
   widoczneGrupy.forEach(g => g.czesci.forEach(t => {
-    if (t.status === 'anulowana' || czyPrzeks(t)) return;
+    if (t.status === 'anulowana' || czyPrzeks(t) || czyKorekta(t)) return;
     if (czyPrywatna(t) && !zPrywatnymi) { prywatnych++; return; }
     if (t.status === 'oczekuje na wyciąg') czeka++;
     const k = kwotaPLN(t);
@@ -271,6 +272,9 @@ function wiersz(g) {
     t.status === 'potwierdzona' ? '<span class="znacznik potw">potwierdzona</span>' : '',
     t.status === 'anulowana' ? '<span class="znacznik anul">anulowana</span>' : '',
     t.planowana_id ? '<span class="znacznik">z planu</span>' : '',
+    czyKorekta(t) ? '<span class="znacznik">korekta salda</span>' : '',
+    czyWplywDoRozliczenia(t) && zostaloWplywu(t) > 0.004 && dane.sprzedaz.length ? `<span class="znacznik czeka">do rozliczenia ${esc(kwotaTxt(zostaloWplywu(t), t.waluta))}</span>` : '',
+    t.typ === 'wpływ' && rozliczonoTransakcji(t.id) > 0 && zostaloWplywu(t) <= 0.004 ? '<span class="znacznik potw">rozliczona z paragonem</span>' : '',
     zal ? `<span class="znacznik">${zal} ${odmiana(zal, 'załącznik', 'załączniki', 'załączników')}</span>` : '',
     g.czesci.some(czekaNaWysylke) ? '<span class="znacznik wysylka">do wysłania</span>' : '',
   ].join('');

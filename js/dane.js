@@ -2,13 +2,14 @@
 
 import * as db from './db.js';
 import * as sync from './sync.js';
+import { mozePrywatne } from './api.js';
 import { dataLok, dodajDni, przesunDate, roznicaDni, zaokr } from './util.js';
 
-export const dane = { slownik: [], transakcje: [], planowane: [], budzety: [], pozyczki: [], sprzedaz: [], sprzedazPoz: [], importy: [] };
+export const dane = { slownik: [], transakcje: [], planowane: [], budzety: [], pozyczki: [], sprzedaz: [], sprzedazPoz: [], importy: [], rozliczenia: [] };
 
 export async function wczytajDane() {
-  [dane.slownik, dane.transakcje, dane.planowane, dane.budzety, dane.pozyczki, dane.sprzedaz, dane.sprzedazPoz, dane.importy] = await Promise.all(
-    ['SLOWNIK', 'TRANSAKCJE', 'PLANOWANE', 'BUDZETY', 'POZYCZKI', 'SPRZEDAZ_SGT', 'SPRZEDAZ_SGT_POZ', 'IMPORTY'].map(k => db.wiersze(k)));
+  [dane.slownik, dane.transakcje, dane.planowane, dane.budzety, dane.pozyczki, dane.sprzedaz, dane.sprzedazPoz, dane.importy, dane.rozliczenia] = await Promise.all(
+    ['SLOWNIK', 'TRANSAKCJE', 'PLANOWANE', 'BUDZETY', 'POZYCZKI', 'SPRZEDAZ_SGT', 'SPRZEDAZ_SGT_POZ', 'IMPORTY', 'ROZLICZENIA'].map(k => db.wiersze(k)));
 }
 
 // ── Słownik ──
@@ -57,8 +58,8 @@ export function podrzedne(typ, nazwaRodzica, zArchiwum = false) {
 export const PRYWATNE = 'Prywatne';
 export function podmioty() {
   const p = lista('podmioty').map(x => x.nazwa);
-  const l = p.length ? p : ['INCO', 'OFI'];
-  return l.includes(PRYWATNE) ? l : [...l, PRYWATNE];
+  const l = (p.length ? p : ['INCO', 'OFI']).filter(x => x !== PRYWATNE);
+  return mozePrywatne() ? [...l, PRYWATNE] : l;
 }
 export const czyPrywatna = t => t.podmiot === PRYWATNE;
 /** Etykieta podmiotu; puste i dawne „wspólne” = nieprzypisane. */
@@ -123,6 +124,9 @@ export const WYMIANA = 'Wymiana walut';
 export const TYPY_POZYCZEK = ['pożyczka-udzielona', 'pożyczka-otrzymana', 'spłata-otrzymana', 'spłata-oddana'];
 const WPLYWY = new Set(['wpływ', 'przeksięgowanie-wpływ', 'pożyczka-otrzymana', 'spłata-otrzymana']);
 export const czyPrzeks = t => String(t.typ || '').startsWith('przeksięgowanie');
+/** Korekta salda: wyrównanie do stanu z banku – zmienia saldo konta, ale nie wchodzi do zestawień. */
+export const KOREKTA = 'Korekta salda';
+export const czyKorekta = t => t.zrodlo === 'korekta';
 export const czyPozyczkowa = t => TYPY_POZYCZEK.includes(t.typ);
 export const czyZakupZaMnie = t => t.typ === 'wydatek' && !t.konto && Boolean(t.pozyczka_id);
 export const kierunek = t => (WPLYWY.has(t.typ) ? 'wpływ' : 'wypływ');
@@ -197,6 +201,25 @@ export function stanKont() {
     s.salda[w] = zaokr((s.salda[w] || 0) + (kierunek(t) === 'wpływ' ? 1 : -1) * (Number(t.kwota) || 0));
   }
   return stan;
+}
+
+/** Saldo konta w walucie na koniec dnia „data” (włącznie). */
+export function saldoNaDzien(nazwaKonta, waluta, data) {
+  const k = konta(true).find(x => x.nazwa === nazwaKonta);
+  if (!k) return 0;
+  const a = atrybuty(dane.slownik.find(s => s.lista === 'konta' && s.nazwa === nazwaKonta));
+  const walutaKonta = k.waluta || 'PLN';
+  let saldo = waluta === walutaKonta && a.saldo_poczatkowe !== undefined && a.saldo_poczatkowe !== '' ? Number(a.saldo_poczatkowe) || 0 : 0;
+  const odDaty = a.data_salda || '';
+  for (const t of dane.transakcje) {
+    if (t.konto !== nazwaKonta || t.status === 'anulowana') continue;
+    if (t.status === 'bez ruchu na koncie' && !k.wirtualne) continue;
+    if ((t.waluta || walutaKonta) !== waluta) continue;
+    const d = String(t.data_operacji || '');
+    if ((odDaty && d < odDaty) || d > data) continue;
+    saldo += (kierunek(t) === 'wpływ' ? 1 : -1) * (Number(t.kwota) || 0);
+  }
+  return zaokr(saldo);
 }
 
 // ── załączniki ──

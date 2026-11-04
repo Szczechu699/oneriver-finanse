@@ -4,7 +4,7 @@ import * as sync from './sync.js';
 import { $, $$, esc, zaokr, kwotaTxt, dataLok, uuid, liczba, liczbaNaTekst, odmiana, toast, okno, bezSkoku } from './util.js';
 import {
   dane, wczytajDane, atrybuty, aktywna, lista, konta, KOLORY_KONT, KOLORY, waluty, glowne, podrzedne, listaKategorii,
-  ikona, kolorKategorii, tytuly, stanKont, kategorieBudzetu, podmioty,
+  ikona, kolorKategorii, tytuly, stanKont, kategorieBudzetu, podmioty, saldoNaDzien, KOREKTA, podmiotKonta,
 } from './dane.js';
 import { ikonaSvg } from './ikony.js';
 
@@ -128,7 +128,67 @@ function renderKonto(id) {
         <a class="przycisk drugorzedny" href="#konta">Wróć</a>
       </div>
     </form>
+    ${kf.oryginal ? htmlKorekty() : ''}
   </section>`;
+}
+
+// ── korekta salda: wpisujesz saldo z banku, aplikacja dopisuje różnicę ──
+
+let korekta = { data: dataLok(), waluta: '', kwota: '' };
+
+function htmlKorekty() {
+  const k = kf.oryginal;
+  const waluta = korekta.waluta || k.waluta || 'PLN';
+  const wAplikacji = saldoNaDzien(k.nazwa, waluta, korekta.data);
+  const rzeczywiste = korekta.kwota === '' ? null : zaokr(liczba(korekta.kwota));
+  const roznica = rzeczywiste === null ? null : zaokr(rzeczywiste - wAplikacji);
+  return `<form class="karta-ustawien korekta-salda" data-forma="korekta" novalidate>
+    <h2>Wyrównaj saldo</h2>
+    <p>Wpisz saldo, które pokazuje bank. Różnicę aplikacja zapisze jako „${esc(KOREKTA)}” – zmieni saldo konta, ale nie trafi do zestawień wpływów i wydatków.</p>
+    ${k.waluta ? '' : `<div class="chipy male">${waluty().map(w => `<button type="button" class="chip" data-akcja="korekta-waluta" data-v="${w}" aria-pressed="${waluta === w}">${w}</button>`).join('')}</div>`}
+    <div class="rzad">
+      <label class="pole"><span class="etykieta">Saldo w banku (${esc(waluta)})</span>
+        <input name="korekta-kwota" inputmode="decimal" value="${esc(korekta.kwota)}" placeholder="np. 1 234,56" autocomplete="off"></label>
+      <label class="pole"><span class="etykieta">Na koniec dnia</span><input type="date" name="korekta-data" value="${esc(korekta.data)}" max="${dataLok()}"></label>
+    </div>
+    <dl class="info">
+      <div><dt>Saldo w aplikacji na ten dzień</dt><dd>${esc(kwotaTxt(wAplikacji, waluta))}</dd></div>
+      <div><dt>Korekta</dt><dd class="${roznica > 0 ? 'plus' : roznica < 0 ? 'minus' : ''}">${roznica === null ? '—' : roznica === 0 ? 'nie trzeba, saldo się zgadza' : `${roznica > 0 ? '+' : '−'}${esc(kwotaTxt(Math.abs(roznica), waluta))}`}</dd></div>
+    </dl>
+    <div class="przyciski"><button type="button" data-akcja="korekta-przelicz" class="drugorzedny">Przelicz</button>
+      <button type="submit" ${roznica ? '' : 'disabled'}>Wyrównaj saldo</button></div>
+  </form>`;
+}
+
+function zbierzKorekte() {
+  const f = $('form[data-forma="korekta"]');
+  if (!f) return;
+  korekta.kwota = f.elements['korekta-kwota'].value.trim();
+  korekta.data = f.elements['korekta-data'].value || dataLok();
+}
+
+async function zapiszKorekte() {
+  zbierzKorekte();
+  const k = kf.oryginal;
+  const waluta = korekta.waluta || k.waluta || 'PLN';
+  if (korekta.kwota === '') return toast('Wpisz saldo z banku.', 'blad');
+  const roznica = zaokr(zaokr(liczba(korekta.kwota)) - saldoNaDzien(k.nazwa, waluta, korekta.data));
+  if (!roznica) return toast('Saldo się zgadza – korekta nie jest potrzebna.', 'ok');
+  const kw = Math.abs(roznica);
+  const wplyw = roznica > 0;
+  const t = {
+    id: uuid(), typ: wplyw ? 'wpływ' : 'wydatek', id_pary: '', podzial_id: '', data_operacji: korekta.data, data_ksiegowania: '',
+    konto: k.nazwa, kwota: kw, waluta, kurs: waluta === 'PLN' ? 1 : '', kwota_pln: waluta === 'PLN' ? kw : '',
+    kategoria: wplyw ? '' : KOREKTA, podkategoria: '', zrodlo_przychodu: wplyw ? KOREKTA : '', kontrahent: KOREKTA,
+    podmiot: podmiotKonta(k.nazwa) || '', tagi: '', nr_dokumentu: '', opis: `Saldo w banku ${kwotaTxt(zaokr(liczba(korekta.kwota)), waluta)} na ${korekta.data}`,
+    zalacznik: '', budzet: '', cel: '', pozyczka_id: '', planowana_id: '', planowany_termin: '', dowod: '',
+    status: 'potwierdzona', zrodlo: 'korekta',
+  };
+  await sync.zapisz('TRANSAKCJE', [t]);
+  await wczytajDane();
+  toast(`Saldo wyrównane: ${wplyw ? '+' : '−'}${kwotaTxt(kw, waluta)}.`, 'ok');
+  korekta = { data: dataLok(), waluta: '', kwota: '' };
+  bezSkoku(() => renderKonto(kf.klucz));
 }
 
 async function zapiszKonto(archiwizuj = null) {
@@ -139,6 +199,7 @@ async function zapiszKonto(archiwizuj = null) {
   if (inne) return toast('Konto o takiej nazwie już istnieje.', 'blad');
   const o = kf.oryginal;
   const atr = {
+    ...atrybuty(o),   // zachowuje m.in. drugi numer rachunku i profil importu
     waluta: kf.waluta, typ: kf.typ, kolor: kf.kolor, podmiot: kf.podmiot, wirtualne: kf.typ === 'skarbonka',
     saldo_poczatkowe: kf.saldo === '' ? '' : zaokr(liczba(kf.saldo)), data_salda: kf.data_salda,
     [kf.identyfikator.includes('@') ? 'email' : 'iban']: kf.identyfikator,
@@ -389,6 +450,9 @@ async function klik(e) {
   if (!b) return;
   const { akcja, v } = b.dataset;
   const tr = location.hash.slice(1).split('/')[0];
+  zbierzKorekte();
+  if (akcja === 'korekta-przelicz') { odswiezKorekte(); return; }
+  if (akcja === 'korekta-waluta') { korekta.waluta = v; odswiezKorekte(); return; }
   if (akcja === 'typ-kat') { typKategorii = v; bezSkoku(renderKategorie); return; }
   if (akcja === 'w-gore' || akcja === 'w-dol') { await przesun(v, akcja === 'w-gore' ? -1 : 1); bezSkoku(renderKategorie); return; }
   if (tr === 'konto' && kf) {
@@ -441,6 +505,7 @@ async function klik(e) {
 async function submit(form) {
   const forma = form.dataset.forma;
   if (forma === 'konto') await zapiszKonto();
+  else if (forma === 'korekta') await zapiszKorekte();
   else if (forma === 'kategoria') await zapiszKategorie();
   else if (forma === 'tytul') {
     tf.nazwa = form.elements['t-nazwa'].value.trim();
@@ -457,7 +522,16 @@ async function submit(form) {
 
 export const ekranDane = { render: renderHub };
 export const ekranKonta = { render: renderKonta };
-export const ekranKonto = { render: id => renderKonto(id || 'nowe'), klik, submit };
+function odswiezKorekte() {
+  const f = $('form[data-forma="korekta"]');
+  if (f && kf?.oryginal) f.outerHTML = htmlKorekty();
+}
+
+export const ekranKonto = {
+  render: id => { korekta = { data: dataLok(), waluta: '', kwota: '' }; renderKonto(id || 'nowe'); },
+  klik, submit,
+  zmiana: e => { if (String(e.target.name || '').startsWith('korekta-')) { zbierzKorekte(); odswiezKorekte(); } },
+};
 export const ekranKategorie = { render: renderKategorie, klik };
 export const ekranKategoria = { render: id => renderKategoria(id || 'nowa-wydatek'), klik, submit };
 export const ekranTytuly = { render: renderTytuly, klik, submit };

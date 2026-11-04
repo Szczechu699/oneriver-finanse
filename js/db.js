@@ -70,6 +70,14 @@ export async function wyczyscKarte(karta, zostaw = new Set()) {
   });
 }
 
+export async function usunWiersze(karta, klucze) {
+  if (!klucze.length) return;
+  return transakcja(['wiersze'], 'readwrite', t => {
+    const s = t.objectStore('wiersze');
+    klucze.forEach(k => s.delete([karta, k]));
+  });
+}
+
 export async function kolejkaDodaj(karta, klucz, wiersz) {
   return transakcja(['kolejka'], 'readwrite', t => {
     t.objectStore('kolejka').add({ karta, klucz, wiersz, dodano: Date.now() });

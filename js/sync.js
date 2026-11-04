@@ -15,6 +15,7 @@ export const KLUCZE = {
   SPRZEDAZ_SGT: r => `${r.podmiot}|${r.dok_id}`,
   SPRZEDAZ_SGT_POZ: r => `${r.podmiot}|${r.ob_id}`,
   IMPORTY: r => String(r.partia),
+  ROZLICZENIA: r => String(r.id),
 };
 let kartyPobierane = Object.keys(KLUCZE);
 
@@ -179,7 +180,10 @@ async function pobierzZmiany(pelna) {
   for (const karta of kartyPobierane) {
     const dane = wynik[karta];
     const klucz = KLUCZE[karta];
-    const doZapisu = dane.wiersze.filter(w => !czekajace.has(`${karta}|${klucz(w)}`));
+    // wiersze prywatne, których ten użytkownik nie widzi, przychodzą jako sam klucz z „ukryty” – usuwamy kopię z urządzenia
+    const ukryte = dane.wiersze.filter(w => w.ukryty === true || w.ukryty === 'true');
+    if (ukryte.length) await db.usunWiersze(karta, ukryte.map(klucz));
+    const doZapisu = dane.wiersze.filter(w => !(w.ukryty === true || w.ukryty === 'true') && !czekajace.has(`${karta}|${klucz(w)}`));
     if (pelna || !od[karta]) {
       const zostaw = new Set([...czekajace].filter(k => k.startsWith(karta + '|')).map(k => k.slice(karta.length + 1)));
       await db.wyczyscKarte(karta, zostaw);

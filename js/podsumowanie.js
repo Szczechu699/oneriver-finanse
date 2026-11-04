@@ -5,7 +5,7 @@ import { $, $$, esc, zaokr, fmt2, kwotaTxt, dataLok, dodajDni, przesunDate, rozn
 import {
   dane, konta, kolorKonta, glowne, podmioty, ikona, kolorKategorii, czyPrzeks, czyPozyczkowa, kwotaPLN, stanKont,
   aktywnePlanowane, terminy, kierunekPlanu, stanPozyczki, stronaPozyczki, aktywneBudzety, stanBudzetu, stanCelu,
-  PRYWATNE, czyPrywatna, kluczPodmiotu, nazwaPodmiotu,
+  PRYWATNE, czyPrywatna, kluczPodmiotu, nazwaPodmiotu, czyKorekta,
 } from './dane.js';
 import { filtry as filtryListy } from './lista.js';
 import { ikonaSvg } from './ikony.js';
@@ -59,7 +59,7 @@ function zbierz(od, do_) {
   const wynik = { wplywy: 0, wydatki: 0, bezKursu: 0, czeka: 0, lista: [] };
   for (const t of dane.transakcje) {
     const d = String(t.data_operacji || '');
-    if (d < od || d > do_ || !pasuje(t) || czyPrzeks(t) || czyPozyczkowa(t)) continue;
+    if (d < od || d > do_ || !pasuje(t) || czyPrzeks(t) || czyPozyczkowa(t) || czyKorekta(t)) continue;
     if (t.typ !== 'wpływ' && t.typ !== 'wydatek') continue;
     if (t.status === 'oczekuje na wyciąg') wynik.czeka++;
     const k = kwotaPLN(t);

@@ -2,12 +2,12 @@
 
 import * as db from './db.js';
 import * as sync from './sync.js';
-import { ustawienia, zapiszUstawienia, skonfigurowane, wywolaj, wersjaApi } from './api.js';
+import { ustawienia, zapiszUstawienia, skonfigurowane, wywolaj, wersjaApi, uzytkownik } from './api.js';
 import { $, esc, toast, okno } from './util.js';
 import { dane, wczytajDane, konta } from './dane.js';
 
-export const WERSJA = '0.9.0';
-export const WYMAGANE_API = 5;
+export const WERSJA = '0.10.0';
+export const WYMAGANE_API = 6;
 
 export function render(komunikat = '') {
   const u = ustawienia();
@@ -21,7 +21,7 @@ export function render(komunikat = '') {
       <p>Wpisz adres API i token z arkusza „One River – Finanse”. Zapiszą się tylko na tym urządzeniu.</p>
     </div>` : `<h1>Ustawienia</h1>`}
 
-    ${!pierwszy && api && api < WYMAGANE_API ? `<div class="pasek-edycji"><span>Skrypt arkusza ma wersję ${api}, a ta wersja aplikacji potrzebuje ${WYMAGANE_API}. Wklej nowy plik Kod.gs w Apps Script i wdroż nową wersję. Do tego czasu nowe funkcje (faktury w folderze „Faktury”, kopie zapasowe, dziennik zdarzeń) nie działają.</span></div>` : ''}
+    ${!pierwszy && api && api < WYMAGANE_API ? `<div class="pasek-edycji"><span>Skrypt arkusza ma wersję ${api}, a ta wersja aplikacji potrzebuje ${WYMAGANE_API}. Wklej nowy plik Kod.gs w Apps Script i wdroż nową wersję. Do tego czasu nowe funkcje (osobne tokeny użytkowników i ukrywanie transakcji prywatnych) nie działają.</span></div>` : ''}
 
     <form class="karta-ustawien" data-forma="polaczenie" novalidate>
       <h2>Połączenie z arkuszem</h2>
@@ -46,6 +46,7 @@ export function render(komunikat = '') {
         <div><dt>Załączniki do wysłania</dt><dd>${s.plikiOczekujace || 0}</dd></div>
         <div><dt>Transakcje na urządzeniu</dt><dd>${dane.transakcje.length}</dd></div>
         <div><dt>Wersja skryptu arkusza</dt><dd>${api || 'nieznana'}</dd></div>
+        ${api >= 6 ? `<div><dt>Użytkownik tokenu</dt><dd>${uzytkownik()?.nazwa ? esc(uzytkownik().nazwa) : 'wspólny token'}${uzytkownik()?.prywatne ? ' – widzi transakcje prywatne' : ' – bez transakcji prywatnych'}</dd></div>` : ''}
         ${s.blad ? `<div><dt>Ostatni błąd</dt><dd class="blad">${esc(s.blad)}</dd></div>` : ''}
       </dl>
       <div class="przyciski">

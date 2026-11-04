@@ -52,9 +52,18 @@ export async function wywolaj(akcja, dane = {}, limitMs = 45000) {
   if (json.wersja) {
     try { localStorage.setItem('or-finanse-wersja-api', String(json.wersja)); } catch { /* bez znaczenia */ }
   }
+  if (json.uzytkownik) {
+    try { localStorage.setItem('or-finanse-uzytkownik', JSON.stringify(json.uzytkownik)); } catch { /* bez znaczenia */ }
+  }
   if (!json.ok) throw new BladApi(json.blad || 'Nieznany błąd API.');
   return json.dane;
 }
+
+/** Użytkownik tokenu z ostatniej odpowiedzi API: { nazwa, prywatne } (starsze API: brak = pełny dostęp). */
+export function uzytkownik() {
+  try { return JSON.parse(localStorage.getItem('or-finanse-uzytkownik')) || null; } catch { return null; }
+}
+export const mozePrywatne = () => uzytkownik()?.prywatne !== false;
 
 export function wersjaApi() {
   try { return Number(localStorage.getItem('or-finanse-wersja-api')) || 0; } catch { return 0; }

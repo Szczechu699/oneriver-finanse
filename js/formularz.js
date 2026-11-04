@@ -14,6 +14,7 @@ import {
 } from './dane.js';
 import { zapiszPozyczke } from './pozyczki.js';
 import { ikonaSvg } from './ikony.js';
+import { czyWplywDoRozliczenia, rozliczonoTransakcji, zostaloWplywu } from './rozliczenia.js';
 
 let f = null;
 let podpowiedzi = [];
@@ -373,6 +374,20 @@ function htmlDowodu() {
   </div>`;
 }
 
+/** W edycji wpływu: ile rozliczono paragonami i link do rozliczenia. */
+function htmlRozliczenia() {
+  if (f.tryb !== 'edycja' || f.planId || f.typ !== 'wpływ') return '';
+  const wiersze = f.oryginaly.filter(o => o.typ === 'wpływ' && o.status !== 'anulowana');
+  const doRozl = wiersze.filter(czyWplywDoRozliczenia);
+  if (!doRozl.length) return '';
+  const rozl = zaokr(doRozl.reduce((s, o) => s + rozliczonoTransakcji(o.id), 0));
+  const zostalo = zaokr(doRozl.reduce((s, o) => s + zostaloWplywu(o), 0));
+  return `<div class="pasek-rozliczenia">
+    <span>Rozliczenie z paragonami: ${rozl ? `rozliczono <b>${esc(kwotaTxt(rozl, doRozl[0].waluta))}</b>, ` : ''}${zostalo > 0.004 ? `zostało <b>${esc(kwotaTxt(zostalo, doRozl[0].waluta))}</b>` : 'w całości rozliczony'}.</span>
+    <a class="przycisk-maly" href="#rozliczenie/${encodeURIComponent((doRozl.find(o => zostaloWplywu(o) > 0.004) || doRozl[0]).id)}">${zostalo > 0.004 ? 'Rozlicz z paragonem' : 'Pokaż rozliczenie'}</a>
+  </div>`;
+}
+
 function htmlZalacznikow() {
   const pliki = f.zalaczniki;
   return `<fieldset class="pole">
@@ -525,6 +540,7 @@ export function renderDodaj(trasa = null, id = null) {
       ${f.tryb === 'edycja' ? `<div class="pasek-edycji">
           <span>${f.planId ? 'Edytujesz pozycję planowaną' : 'Edytujesz transakcję'}${anulowana ? ' (anulowaną)' : ''}${potwierdzona ? '. Jest już potwierdzona wyciągiem' : ''}.</span>
           <a href="${f.planId ? (f.subskrypcja ? '#subskrypcje' : '#planowane') : '#lista'}">Wróć do listy</a></div>` : ''}
+      ${htmlRozliczenia()}
 
       ${pozyczka ? htmlPozyczki() : `
       ${!miedzy && !f.podzial && (f.tryb === 'nowy' || f.planId) ? `
