@@ -130,7 +130,10 @@ function pokazStan(s) {
     wczytajDane().then(() => {
       const el = document.activeElement;
       const pisze = el && /INPUT|TEXTAREA|SELECT/.test(el.tagName);
-      if (!pisze && !$('#okno').open) bezSkoku(render);
+      if (!pisze && !$('#okno').open) {
+        if (aktywny === formularz.ekran) formularz.zachowajPola();
+        bezSkoku(render);
+      }
     });
   }
 }

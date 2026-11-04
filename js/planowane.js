@@ -336,11 +336,63 @@ function mapaProstokatow(wartosci, W, H) {
   return wynik;
 }
 
+/** Termin, od którego liczy się bieżący okres subskrypcji (poprzedni termin przed najbliższym). */
+function poczatekOkresu(p) {
+  return przesunDate(p.nastepna_data, p.powtarzanie || 'miesiąc', -(Number(p.co_ile) || 1), p.data_start || p.nastepna_data);
+}
+
+const platnosciPlanu = id => dane.transakcje
+  .filter(t => t.planowana_id === id && t.status !== 'anulowana')
+  .sort((a, b) => String(b.planowany_termin || b.data_operacji).localeCompare(String(a.planowany_termin || a.data_operacji)));
+
+function wierszSubskrypcji(p) {
+  const dzis = dataLok();
+  const aktywna = p.status === 'aktywna';
+  const kat = p.kategoria;
+  const ostatnia = platnosciPlanu(p.id)[0];
+  const zaplaconaTeraz = aktywna && ostatnia && String(ostatnia.planowany_termin || ostatnia.data_operacji) >= poczatekOkresu(p)
+    && p.nastepna_data >= dzis;
+  const opoz = aktywna && p.nastepna_data < dzis;
+  let stanTxt;
+  if (!aktywna) stanTxt = `Zakończona${p.data_koniec ? ` (koniec ${dataKrotko(p.data_koniec)} ${p.data_koniec.slice(0, 4)})` : ''}${ostatnia ? `, ostatnia płatność ${dataKrotko(ostatnia.data_operacji)}` : ''}`;
+  else if (zaplaconaTeraz) stanTxt = `✓ Zapłacono ${dataSlownie(ostatnia.data_operacji).toLowerCase()} · następna ${dataKrotko(p.nastepna_data)}`;
+  else if (opoz) stanTxt = `Do zapłaty od ${dataKrotko(p.nastepna_data)} – ${relatywnie(p.nastepna_data)}`;
+  else stanTxt = `Następna płatność ${dataSlownie(p.nastepna_data).toLowerCase()}${relatywnie(p.nastepna_data) ? ` (${relatywnie(p.nastepna_data)})` : ''}`;
+  return `<li class="wiersz-planu wiersz-sub ${opoz ? 'opozniona' : ''} ${zaplaconaTeraz ? 'zaplacona' : ''} ${aktywna ? '' : 'zakonczona'}">
+    <a href="#plan/${encodeURIComponent(p.id)}">
+      <span class="ikona" style="--tlo:${esc(kolorKategorii(kat, 'wydatek'))}" aria-hidden="true">${esc(ikona(kat, 'wydatek'))}</span>
+      <span class="srodek"><span class="tytul">${esc(p.nazwa || kat || p.kontrahent)}</span>
+        <span class="etykiety">${p.konto ? `<span class="etykieta-konta" style="--k:${esc(kolorKonta(p.konto))}">${esc(p.konto)}</span>` : ''}
+          ${p.podmiot ? `<span class="znacznik">${esc(p.podmiot)}</span>` : ''}</span>
+        <span class="stan-sub">${esc(stanTxt)}</span></span>
+      <span class="kwota-wiersza minus">−${esc(kwotaTxt(Number(p.kwota) || 0, p.waluta))}<small>${esc(opisRytmu(p))}</small></span>
+    </a>
+    <div class="akcje-planu">
+      ${!aktywna ? `<button type="button" data-akcja="wznow" data-v="${esc(p.id)}">Wznów</button>`
+        : zaplaconaTeraz ? `<button type="button" class="znacznik-przycisk" data-akcja="cofnij" data-v="${esc(ostatnia.id)}">Zapłacone, cofnij</button>`
+        : `<button type="button" data-akcja="zaplacone" data-v="${esc(p.id)}">Zapłać?</button>
+           <button type="button" class="drugorzedny" data-akcja="pomin" data-v="${esc(p.id)}">Pomiń ten termin</button>`}
+    </div>
+  </li>`;
+}
+
+/** Wznowienie zakończonej subskrypcji: bez daty końca, od terminu po ostatniej płatności. */
+async function wznow(p) {
+  const baza = { ...p, data_koniec: '', status: 'aktywna' };
+  const ostatnia = platnosciPlanu(p.id)[0];
+  const termin = ostatnia && (ostatnia.planowany_termin || ostatnia.data_operacji);
+  if (termin && termin >= p.nastepna_data) baza.nastepna_data = nastepnyTermin(baza, termin);
+  await sync.zapisz('PLANOWANE', [baza]);
+  await wczytajDane();
+  toast(`Wznowiono: ${p.nazwa}. Następna płatność ${dataSlownie(baza.nastepna_data).toLowerCase()}.`, 'ok');
+}
+
 export function renderSubskrypcje() {
-  const subs = aktywnePlanowane().filter(p => p.rodzaj === 'subskrypcja');
-  const zaplacono = id => zaokr(dane.transakcje.filter(t => t.planowana_id === id && t.status !== 'anulowana')
-    .reduce((s, t) => s + (t.waluta === 'PLN' ? Number(t.kwota) : Number(t.kwota_pln) || 0), 0));
-  const pozycje = subs.map(p => {
+  const wszystkie = dane.planowane.filter(p => p.rodzaj === 'subskrypcja' && p.status !== 'anulowana');
+  const subs = wszystkie.filter(p => p.status === 'aktywna');
+  const zakonczone = wszystkie.filter(p => p.status !== 'aktywna').sort((a, b) => String(a.nazwa).localeCompare(String(b.nazwa), 'pl'));
+  const zaplacono = id => zaokr(platnosciPlanu(id).reduce((s, t) => s + (t.waluta === 'PLN' ? Number(t.kwota) : Number(t.kwota_pln) || 0), 0));
+  const pozycje = (widokSub === 'zaplacono' ? wszystkie : subs).map(p => {
     const kurs = kursPrzyblizony(p.waluta || 'PLN');
     const mies = miesiecznyKoszt(p) * (kurs || 0);
     const wartosc = widokSub === 'miesiecznie' ? mies : widokSub === 'rocznie' ? mies * 12 : zaplacono(p.id);
@@ -350,10 +402,18 @@ export function renderSubskrypcje() {
   const naMapie = pozycje.filter(x => x.wartosc > 0);
   const proporcja = window.innerWidth < 720 ? 1.15 : 2.8;
   const prost = mapaProstokatow(naMapie.map(x => x.wartosc), 100 * proporcja, 100);
-  const nadchodzace = [...subs].sort((a, b) => String(a.nastepna_data).localeCompare(String(b.nastepna_data)));
-  const dni = new Map();
-  nadchodzace.forEach(p => { if (!dni.has(p.nastepna_data)) dni.set(p.nastepna_data, []); dni.get(p.nastepna_data).push(p); });
   const dzis = dataLok();
+  const zaplaconeTeraz = p => {
+    const o = platnosciPlanu(p.id)[0];
+    return o && String(o.planowany_termin || o.data_operacji) >= poczatekOkresu(p) && p.nastepna_data >= dzis;
+  };
+  const doZaplaty = subs.filter(p => !zaplaconeTeraz(p)).sort((a, b) => String(a.nastepna_data).localeCompare(String(b.nastepna_data)));
+  const zaplacone = subs.filter(zaplaconeTeraz).sort((a, b) => String(a.nastepna_data).localeCompare(String(b.nastepna_data)));
+  const sekcja = (tytul, lista, klasa = '') => lista.length ? `
+      <section class="dzien lista-sub ${klasa}">
+        <h2>${esc(tytul)} <span>${lista.length}</span></h2>
+        <ul>${lista.map(wierszSubskrypcji).join('')}</ul>
+      </section>` : '';
 
   $('#widok').innerHTML = `
   <section class="ekran subskrypcje">
@@ -363,7 +423,7 @@ export function renderSubskrypcje() {
     </div>
     <div class="suma-sub">
       <b>${esc(kwotaTxt(suma))}</b>
-      <span>${{ miesiecznie: 'miesięcznie', rocznie: 'rocznie', zaplacono: 'zapłacono dotąd' }[widokSub]}${subs.length ? `, ${subs.length} ${odmiana(subs.length, 'subskrypcja', 'subskrypcje', 'subskrypcji')}` : ''}</span>
+      <span>${{ miesiecznie: 'miesięcznie', rocznie: 'rocznie', zaplacono: 'zapłacono dotąd' }[widokSub]}${subs.length ? `, ${subs.length} ${odmiana(subs.length, 'aktywna subskrypcja', 'aktywne subskrypcje', 'aktywnych subskrypcji')}` : ''}</span>
       <div class="chipy male">${[['miesiecznie', 'Miesięcznie'], ['rocznie', 'Rocznie'], ['zaplacono', 'Zapłacono dotąd']].map(([v, e]) =>
         `<button type="button" class="chip" data-akcja="widok-sub" data-v="${v}" aria-pressed="${widokSub === v}">${e}</button>`).join('')}</div>
     </div>
@@ -379,11 +439,10 @@ export function renderSubskrypcje() {
       </a>`;
     }).join('')}</div>` : ''}
     ${pozycje.some(x => x.bezKursu) ? '<p class="uwagi-podsumowania">Subskrypcje w walucie bez znanego kursu nie są wliczone w sumę.</p>' : ''}
-    ${dni.size ? [...dni.entries()].map(([d, lst]) => `
-      <section class="dzien ${d < dzis ? 'po-terminie' : ''}">
-        <h2>${esc(dataSlownie(d))} <span>${esc(relatywnie(d))}</span></h2>
-        <ul>${lst.map(wierszPlanu).join('')}</ul>
-      </section>`).join('') : `
+    ${wszystkie.length ? `
+      ${sekcja('Do zapłaty', doZaplaty)}
+      ${sekcja('Zapłacone w tym okresie', zaplacone, 'zaplacone')}
+      ${zakonczone.length ? `<details class="zakonczone-sub"><summary>Zakończone (${zakonczone.length})</summary>${sekcja('Zakończone', zakonczone, 'zakonczone')}</details>` : ''}` : `
       <div class="pusto-duze"><p>Nie masz jeszcze subskrypcji. Dodaj abonamenty, np. programy, hosting czy telefon, żeby widzieć ich koszt miesięczny.</p>
         <a class="przycisk" href="#dodaj/sub">Dodaj subskrypcję</a></div>`}
   </section>`;
@@ -408,6 +467,9 @@ async function klikWspolny(e, rysuj) {
   } else if (akcja === 'pomin') {
     const p = dane.planowane.find(x => x.id === v);
     if (p) await pomin(p);
+  } else if (akcja === 'wznow') {
+    const p = dane.planowane.find(x => x.id === v);
+    if (p) await wznow(p);
   } else if (akcja === 'cofnij') {
     const t = dane.transakcje.find(x => x.id === v);
     if (!t) return true;

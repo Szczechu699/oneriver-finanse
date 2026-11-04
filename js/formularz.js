@@ -384,8 +384,9 @@ function htmlPlanu() {
           <select name="powtarzanie" aria-label="Jednostka">${Object.keys(RYTMY).map(r =>
             `<option value="${r}" ${f.powtarzanie === r ? 'selected' : ''}>${formaRytmu(r, n)}</option>`).join('')}</select>
         </span></label>
-      <label class="pole"><span class="etykieta">Do kiedy (puste = bez końca)</span>
-        <input name="data_koniec" type="date" value="${esc(f.data_koniec)}" min="${esc(f.data)}"></label>
+      <label class="pole"><span class="etykieta">Koniec powtarzania (opcjonalnie)</span>
+        <input name="data_koniec" type="date" value="${esc(f.data_koniec)}" min="${esc(f.data)}">
+        <span class="podpowiedz">Zostaw puste, jeśli płacisz bez końca. To nie jest termin zapłaty – ten ustawiasz wyżej.</span></label>
     </div>
     <label class="przelacznik duzy"><input type="checkbox" name="subskrypcja" ${f.subskrypcja ? 'checked' : ''}> To subskrypcja lub abonament</label>
   </div>`;
@@ -728,7 +729,14 @@ export async function obsluzZmiane(e) {
     przerysuj();
   } else if (el.name === 'kontrahent' && !czyPozyczka()) {
     kontrahentZmieniony(el.value);
+  } else {
+    zbierzPola();   // np. „To subskrypcja” – stan nie może zginąć przy odświeżeniu ekranu po synchronizacji
   }
+}
+
+/** Przed przerysowaniem ekranu z zewnątrz (np. po synchronizacji) zapamiętuje to, co jest wpisane w polach. */
+export function zachowajPola() {
+  if ($('.dodaj')) zbierzPola();
 }
 
 function kontrahentZmieniony(wartosc) {
@@ -812,6 +820,10 @@ function blad(kwota) {
   if (!f.kategoria) return f.typ === 'wpływ' ? 'Wybierz źródło przychodu.' : 'Wybierz kategorię.';
   if (!f.podmiot) return 'Wybierz, czego dotyczy: INCO, OFI czy Prywatne.';
   if (czyPlan() && f.rodzajWpisu === 'powtarzalna' && !(Number(f.co_ile) >= 1)) return 'Podaj, co ile ma się powtarzać.';
+  if (czyPlan() && f.rodzajWpisu === 'powtarzalna' && f.data_koniec
+    && f.data_koniec < przesunDate(f.data, f.powtarzanie || 'miesiąc', Number(f.co_ile) || 1)) {
+    return 'Koniec powtarzania wypada przed drugą płatnością. Wyczyść to pole albo wybierz „Nadchodząca”, jeśli płacisz tylko raz.';
+  }
   return null;
 }
 

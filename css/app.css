@@ -768,3 +768,13 @@ li.prywatna .kwota-wiersza { color: var(--szary) !important; }
 .sprzedaz-wklej textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; white-space: pre; }
 .sprzedaz-wklej h3 { font-size: 15px; margin: 14px 0 6px; color: var(--szary); }
 kbd { font: 600 12.5px ui-monospace, Menlo, Consolas, monospace; padding: 1px 6px; border: 1px solid var(--linia); border-bottom-width: 2px; border-radius: 6px; background: var(--papier-2); }
+
+/* ───────── wersja 0.6.1: subskrypcje ───────── */
+.stan-sub { display: block; font-size: 13.5px; color: var(--szary); margin-top: 3px; }
+.wiersz-sub.opozniona .stan-sub { color: var(--czerwien); font-weight: 700; }
+.wiersz-sub.zaplacona .stan-sub { color: var(--wplyw); font-weight: 700; }
+@media (prefers-color-scheme: dark) { .wiersz-sub.zaplacona .stan-sub { color: #8FD39B; } }
+.wiersz-sub.zakonczona a { opacity: .7; }
+.zakonczone-sub { margin-top: 18px; }
+.zakonczone-sub > summary { cursor: pointer; font-weight: 700; color: var(--szary); padding: 8px 4px; }
+.zakonczone-sub .dzien h2 { display: none; }

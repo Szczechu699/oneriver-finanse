@@ -6,7 +6,7 @@ import { ustawienia, zapiszUstawienia, skonfigurowane, wywolaj, wersjaApi } from
 import { $, esc, toast, okno } from './util.js';
 import { dane, wczytajDane, konta } from './dane.js';
 
-export const WERSJA = '0.6.0';
+export const WERSJA = '0.6.1';
 export const WYMAGANE_API = 4;
 
 export function render(komunikat = '') {
