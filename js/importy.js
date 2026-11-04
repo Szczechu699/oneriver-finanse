@@ -541,7 +541,7 @@ function liczniki() {
 }
 
 function renderStart() {
-  const ostatnie = [...dane.importy].sort((a, b) => String(b.utworzono || b.data).localeCompare(String(a.utworzono || a.data))).slice(0, 8);
+  const ostatnie = [...dane.importy].sort((a, b) => String(b.utworzono || b.data).localeCompare(String(a.utworzono || a.data))).slice(0, 12);
   $('#widok').innerHTML = `
   <section class="ekran import-ekran">
     <div class="naglowek-sekcji"><h1>Import wyciągu</h1></div>
@@ -556,7 +556,7 @@ function renderStart() {
     </div>
     ${ostatnie.length ? `<div class="karta-ustawien"><h2>Ostatnie importy</h2>
       <table class="tabela"><thead><tr><th>Kiedy</th><th>Konto</th><th>Okres</th><th class="liczba">Połączone</th><th class="liczba">Dodane</th><th class="liczba">Pominięte</th></tr></thead>
-      <tbody>${ostatnie.map(i => `<tr><td>${esc(dataKrotko(String(i.data || i.utworzono).slice(0, 10)))}</td><td>${esc(i.konto)}</td>
+      <tbody>${ostatnie.map(i => `<tr class="${czyWycofany(i) ? 'wycofany' : ''}"><td><a href="#import/${encodeURIComponent(i.partia)}">${esc(dataKrotko(String(i.data || i.utworzono).slice(0, 10)))}</a>${czyWycofany(i) ? ' <span class="znacznik anul">wycofany</span>' : ''}</td><td><a href="#import/${encodeURIComponent(i.partia)}">${esc(i.konto)}</a></td>
         <td>${i.okres_od ? esc(`${dataKrotko(String(i.okres_od).slice(0, 10))} – ${dataKrotko(String(i.okres_do).slice(0, 10))}`) : ''}</td>
         <td class="liczba">${esc(i.dopasowanych ?? '')}</td><td class="liczba">${esc(i.dodanych ?? '')}</td><td class="liczba">${esc(i.pominietych ?? '')}</td></tr>`).join('')}</tbody></table></div>` : ''}
   </section>`;
@@ -653,7 +653,116 @@ function renderSekcje() {
   </section>`;
 }
 
-function render() {
+const czyWycofany = i => i.wycofana === true || String(i.wycofana).toUpperCase() === 'TRUE';
+
+// ───────────────────────── podgląd i edycja zapisanego importu (#import/<partia>) ─────────────────────────
+
+function wierszePartii(partia) {
+  const glowne_ = dane.transakcje.filter(t => t.partia_importu === partia);
+  const pary = new Set(glowne_.filter(t => t.id_pary && t.zrodlo === 'import').map(t => t.id_pary));
+  const drugie = dane.transakcje.filter(t => pary.has(t.id_pary) && !t.partia_importu);
+  return { glowne_, drugie };
+}
+
+function renderPartia(partia) {
+  const i = dane.importy.find(x => String(x.partia) === partia);
+  if (!i) { $('#widok').innerHTML = '<section class="ekran"><p class="pusto">Nie ma takiego importu na tym urządzeniu.</p><a href="#import">Import wyciągu</a></section>'; return; }
+  const { glowne_ } = wierszePartii(partia);
+  const lista_ = [...glowne_].sort((a, b) => String(b.data_ksiegowania || b.data_operacji).localeCompare(String(a.data_ksiegowania || a.data_operacji)));
+  const wycofany = czyWycofany(i);
+  const opcjeKat = t => {
+    const typ = t.typ === 'wpływ' ? 'wpływ' : 'wydatek';
+    const w = typ === 'wpływ' ? `${t.zrodlo_przychodu || ''}||` : `${t.kategoria || ''}||${t.podkategoria || ''}`;
+    return opcjeKategorii({ typ, kategoria: typ === 'wpływ' ? t.zrodlo_przychodu : t.kategoria, podkategoria: typ === 'wpływ' ? '' : t.podkategoria }).replace('<option value="__nowa__">', `<option value="__nowa__" data-w="${esc(w)}">`);
+  };
+  $('#widok').innerHTML = `
+  <section class="ekran import-ekran">
+    <a class="wstecz" href="#import">Import wyciągu</a>
+    <div class="naglowek-sekcji"><h1>Import ${esc(dataKrotko(String(i.data || '').slice(0, 10)))}</h1><span class="okres-tytul">${esc(i.konto)}</span></div>
+    <div class="karta-ustawien">
+      <dl class="info">
+        <div><dt>Plik</dt><dd>${esc(i.nazwa_pliku || '')}</dd></div>
+        <div><dt>Okres</dt><dd>${esc(i.okres_od ? `${String(i.okres_od).slice(0, 10)} – ${String(i.okres_do).slice(0, 10)}` : '')}</dd></div>
+        <div><dt>Operacji w pliku</dt><dd>${esc(i.wierszy_w_pliku ?? '')}</dd></div>
+        <div><dt>Połączone z wpisami ręcznymi / dodane / pominięte</dt><dd>${esc(i.dopasowanych ?? 0)} / ${esc(i.dodanych ?? 0)} / ${esc(i.pominietych ?? 0)}</dd></div>
+        <div><dt>Kto i kiedy</dt><dd>${esc(i.kto || '')} · ${esc(String(i.utworzono || '').replace('T', ' ').slice(0, 16))}</dd></div>
+      </dl>
+      ${wycofany ? '<p class="komunikat blad">Ten import został wycofany – jego operacje są anulowane, a wpisy ręczne wróciły do „czeka na wyciąg”. Plik można wczytać ponownie.</p>' : `
+      <div class="przyciski"><button type="button" class="niebezpieczny" data-akcja="wycofaj-import" data-v="${esc(partia)}">Wycofaj cały import</button></div>
+      <p class="podpowiedz">Wycofanie anuluje dodane operacje i ich rozliczenia, a połączone wpisy ręczne wracają do „czeka na wyciąg”. Potem możesz wczytać plik jeszcze raz.</p>`}
+    </div>
+    <div class="naglowek-listy-importu"><b>Operacje z tego importu (${lista_.length})</b><span>kategorię i podmiot zmienisz od razu tutaj, resztę – w transakcji</span></div>
+    <ul class="lista-importu">${lista_.map(t => {
+      const wplyw = ['wpływ', 'przeksięgowanie-wpływ', 'pożyczka-otrzymana', 'spłata-otrzymana'].includes(t.typ);
+      const edytowalna = t.status !== 'anulowana' && (t.typ === 'wpływ' || t.typ === 'wydatek');
+      return `<li class="wiersz-importu ${t.status === 'anulowana' ? 'stan-juz' : ''}">
+        <span></span>
+        <div class="opis-importu">
+          <div class="gora-importu"><span class="data-importu">${esc(dataKrotko(t.data_ksiegowania || t.data_operacji))}</span>
+            <b><a href="#edytuj/${encodeURIComponent(t.id)}">${esc(t.kontrahent || t.opis || t.typ)}</a></b>
+            <span class="kwota-importu ${wplyw ? 'plus' : 'minus'}">${wplyw ? '+' : '−'}${esc(kwotaTxt(Number(t.kwota) || 0, t.waluta))}</span></div>
+          <div class="szczegoly-importu">${esc([t.zrodlo === 'import' ? 'dodana z wyciągu' : 'wpis ręczny potwierdzony wyciągiem', t.opis && t.opis !== t.kontrahent ? t.opis : '', t.status === 'anulowana' ? 'anulowana' : ''].filter(Boolean).join(' · '))}</div>
+          ${edytowalna ? `<div class="decyzja nowa-z-wyciagu">
+            <select data-pole="p-kategoria" data-id="${esc(t.id)}" aria-label="Kategoria">${opcjeKat(t)}</select>
+            <select data-pole="p-podmiot" data-id="${esc(t.id)}" aria-label="Podmiot"><option value="">— podmiot —</option>${podmioty().map(p => `<option ${p === t.podmiot ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select>
+          </div>` : ''}
+          ${t.surowy_wiersz ? `<details class="surowy"><summary>wiersz z pliku banku</summary><code>${esc(t.surowy_wiersz)}</code></details>` : ''}
+        </div>
+      </li>`;
+    }).join('') || '<li class="pusto">Brak operacji.</li>'}</ul>
+  </section>`;
+}
+
+async function wycofajImport(partia) {
+  const i = dane.importy.find(x => String(x.partia) === partia);
+  const { glowne_, drugie } = wierszePartii(partia);
+  const tak = await okno('Wycofać cały import?', `<p>Operacje dodane z wyciągu (${glowne_.filter(t => t.zrodlo === 'import').length}) zostaną anulowane, a wpisy ręczne (${glowne_.filter(t => t.zrodlo !== 'import').length}) wrócą do „czeka na wyciąg”. Rozliczenia tych wpływów z paragonami też zostaną cofnięte.</p>`,
+    [{ etykieta: 'Nie', wartosc: false, klasa: 'drugorzedny', autofocus: true }, { etykieta: 'Wycofaj import', wartosc: true, klasa: 'niebezpieczny' }]);
+  if (!tak) return;
+  const anulowane = new Set();
+  const transakcje = [];
+  glowne_.forEach(t => {
+    if (t.zrodlo === 'import') { transakcje.push({ ...t, status: 'anulowana' }); anulowane.add(t.id); }
+    else transakcje.push({ ...t, status: statusDlaKonta(t.konto), odcisk: '', partia_importu: '', data_ksiegowania: '', surowy_wiersz: '' });
+  });
+  drugie.forEach(t => { transakcje.push({ ...t, status: 'anulowana' }); anulowane.add(t.id); });
+  const rozl = dane.rozliczenia.filter(r => anulowane.has(r.transakcja_id) && r.status !== 'anulowane').map(r => ({ ...r, status: 'anulowane' }));
+  await sync.zapiszWiele([
+    { karta: 'TRANSAKCJE', wiersze: transakcje },
+    { karta: 'ROZLICZENIA', wiersze: rozl },
+    { karta: 'IMPORTY', wiersze: [{ ...i, wycofana: true, odciski_pominiete: '[]' }] },
+  ]);
+  await wczytajDane();
+  toast('Import wycofany. Możesz wczytać plik ponownie.', 'ok', 6000);
+}
+
+async function zmianaWPartii(el) {
+  const t = dane.transakcje.find(x => x.id === el.dataset.id);
+  if (!t) return;
+  let zm;
+  if (el.dataset.pole === 'p-podmiot') zm = { podmiot: el.value };
+  else {
+    let wartosc = el.value;
+    const typ = t.typ === 'wpływ' ? 'wpływ' : 'wydatek';
+    if (wartosc === '__nowa__') {
+      const r = await nowaKategoria(typ);
+      if (!r) { bezSkoku(() => renderPartia(t.partia_importu)); return; }
+      wartosc = `${r.kategoria}||${r.podkategoria}`;
+    }
+    const [kat, pod = ''] = wartosc.split('||');
+    zm = typ === 'wpływ' ? { zrodlo_przychodu: kat } : { kategoria: kat, podkategoria: pod };
+  }
+  await sync.zapisz('TRANSAKCJE', [{ ...t, ...zm }]);
+  await wczytajDane();
+  toast('Zapisano.', 'ok', 1500);
+  bezSkoku(() => renderPartia(t.partia_importu));
+}
+
+let partiaWidoku = null;
+
+function render(arg) {
+  partiaWidoku = arg || null;
+  if (arg) { renderPartia(arg); return; }
   if (!imp) renderStart();
   else if (!imp.p) renderSekcje();
   else if (!imp.konto) renderKonto();
@@ -792,6 +901,7 @@ function polacz(w, idJednostki) {
 async function klik(e) {
   const b = e.target.closest('[data-akcja]');
   if (!b) return;
+  if (b.dataset.akcja === 'wycofaj-import') { await wycofajImport(b.dataset.v); bezSkoku(() => renderPartia(b.dataset.v)); return; }
   const { akcja, v, i } = b.dataset;
   if (akcja === 'zaznacz') {
     if (b.checked) widok.zaznaczone.add(Number(i)); else widok.zaznaczone.delete(Number(i));
@@ -841,6 +951,7 @@ async function klik(e) {
 
 async function zmiana(e) {
   const el = e.target;
+  if (partiaWidoku && el.dataset.pole?.startsWith('p-')) { await zmianaWPartii(el); return; }
   // „+ Nowa kategoria…” w liście kategorii – okno, potem nowa kategoria od razu wybrana
   if (el.value === '__nowa__' && el.dataset.pole) {
     const pole = el.dataset.pole;

@@ -1,6 +1,6 @@
 // Service worker: trzyma pliki aplikacji w pamięci urządzenia, żeby działała bez internetu.
 // Przy każdej nowej wersji aplikacji zmień WERSJA.
-const WERSJA = 'or-finanse-0.12.1';
+const WERSJA = 'or-finanse-0.13.0';
 const PLIKI = [
   './', './index.html', './css/app.css',
   './js/app.js', './js/db.js', './js/api.js', './js/sync.js',
