@@ -1,6 +1,6 @@
 // Service worker: trzyma pliki aplikacji w pamięci urządzenia, żeby działała bez internetu.
 // Przy każdej nowej wersji aplikacji zmień WERSJA.
-const WERSJA = 'or-finanse-0.12.0';
+const WERSJA = 'or-finanse-0.12.1';
 const PLIKI = [
   './', './index.html', './css/app.css',
   './js/app.js', './js/db.js', './js/api.js', './js/sync.js',
@@ -17,7 +17,8 @@ self.addEventListener('install', e => {
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys()
-      .then(klucze => Promise.all(klucze.filter(k => k !== WERSJA && k !== CZCIONKI).map(k => caches.delete(k))))
+      // tylko własne pamięci – aplikacja stoiska (/stoisko/) ma swoje
+      .then(klucze => Promise.all(klucze.filter(k => k.startsWith('or-finanse') && k !== WERSJA && k !== CZCIONKI).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
@@ -37,6 +38,8 @@ self.addEventListener('fetch', e => {
   }
 
   if (url.origin !== self.location.origin) return;
+  // aplikacja stoiska ma własny service worker – jej stron i plików nie obsługujemy
+  if (url.pathname.includes('/stoisko/')) return;
 
   if (req.mode === 'navigate') {
     e.respondWith(caches.match('./index.html').then(z => z || fetch(req)));
