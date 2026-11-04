@@ -8,6 +8,7 @@ import * as sync from './sync.js';
 import { $, esc, zaokr, kwotaTxt, dataLok, dodajDni, dataSlownie, dataKrotko, uuid, liczba, liczbaNaTekst, toast, okno, bezSkoku, odmiana } from './util.js';
 import {
   dane, wczytajDane, konta, kolorKonta, RODZAJE_POZYCZEK, stronaPozyczki, harmonogram, stanPozyczki, ikona, kolorKategorii,
+  statusDlaKonta,
 } from './dane.js';
 
 const PUSTA_TRANSAKCJA = {
@@ -39,7 +40,7 @@ export async function zapiszPozyczke(d, pliki = []) {
     kwota: d.kwota, waluta: d.waluta, ...kursy(d.waluta, d.kwota),
     kategoria: zakup ? d.kategoria : '', podkategoria: zakup ? d.podkategoria : '',
     kontrahent: d.osoba, podmiot: d.podmiot, tagi: d.tagi, opis: d.opis, zalacznik: d.zalacznik, pozyczka_id: id,
-    status: zakup ? 'bez ruchu na koncie' : 'oczekuje na wyciąg',
+    status: zakup ? 'bez ruchu na koncie' : statusDlaKonta(d.konto),
   };
   const p = {
     id, rodzaj: d.rodzaj, osoba: d.osoba, kwota: d.kwota, waluta: d.waluta, konto: zakup ? '' : d.konto, data: d.data,
@@ -119,7 +120,7 @@ export async function dodajSplate(p, { kwota, data, konto, rata = null }) {
   const t = {
     ...PUSTA_TRANSAKCJA, id: uuid(), typ: r.splata, data_operacji: data, konto, kwota, waluta: p.waluta || 'PLN',
     ...kursy(p.waluta || 'PLN', kwota), kontrahent: p.osoba, podmiot: p.podmiot || '', pozyczka_id: p.id,
-    planowana_id: rata?.id || '', planowany_termin: rata?.nastepna_data || '',
+    planowana_id: rata?.id || '', planowany_termin: rata?.nastepna_data || '', status: statusDlaKonta(konto),
     opis: rata ? rata.nazwa : (p.rodzaj === 'udzielona' ? `Zwrot od ${p.osoba}` : `Spłata dla ${p.osoba}`),
   };
   await zapiszIUzgodnij(p.id, [{ karta: 'TRANSAKCJE', wiersze: [t] }]);

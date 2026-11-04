@@ -11,7 +11,7 @@ import { czyWplywDoRozliczenia, zostaloWplywu, rozliczonoTransakcji } from './ro
 import { ikonaSvg } from './ikony.js';
 
 const RODZAJE = [['wydatki', 'Wydatki'], ['wplywy', 'Wpływy'], ['przeksiegowania', 'Przeksięgowania i wymiany'], ['pozyczki', 'Pożyczki i spłaty']];
-const STATUSY = [['oczekuje na wyciąg', 'Czeka na wyciąg'], ['potwierdzona', 'Potwierdzona'], ['bez ruchu na koncie', 'Bez ruchu na koncie']];
+const STATUSY = [['oczekuje na wyciąg', 'Czeka na wyciąg'], ['potwierdzona', 'Potwierdzona'], ['bez wyciągu', 'Gotówka (bez wyciągu)'], ['bez ruchu na koncie', 'Bez ruchu na koncie']];
 
 export const filtry = {
   zakres: 'miesiac', miesiac: dataLok().slice(0, 7), rok: dataLok().slice(0, 4),
@@ -270,6 +270,7 @@ function wiersz(g) {
     celN ? `<span class="znacznik">cel: ${esc(celN.nazwa)}</span>` : '',
     t.status === 'oczekuje na wyciąg' ? '<span class="znacznik czeka">czeka na wyciąg</span>' : '',
     t.status === 'potwierdzona' ? '<span class="znacznik potw">potwierdzona</span>' : '',
+    t.status === 'bez wyciągu' ? '<span class="znacznik">gotówka</span>' : '',
     t.status === 'anulowana' ? '<span class="znacznik anul">anulowana</span>' : '',
     t.planowana_id ? '<span class="znacznik">z planu</span>' : '',
     czyKorekta(t) ? '<span class="znacznik">korekta salda</span>' : '',

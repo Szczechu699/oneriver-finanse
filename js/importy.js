@@ -6,6 +6,7 @@
 import { $, $$, esc, zaokr, kwotaTxt, dataLok, dodajDni, roznicaDni, dataKrotko, dataSlownie, uuid, odmiana, toast, okno, bezSkoku } from './util.js';
 import {
   dane, wczytajDane, konta, atrybuty, glowne, podrzedne, podmioty, podmiotKonta, czyWirtualne, kierunek, czyPrzeks, lista,
+  statusDlaKonta,
 } from './dane.js';
 import * as sync from './sync.js';
 import { ikonaSvg } from './ikony.js';
@@ -389,6 +390,19 @@ function przygotuj(plikNazwa, p, konto) {
     try { return JSON.parse(i.odciski_pominiete || '[]'); } catch { return []; }
   }));
   const znane = new Set(dane.transakcje.filter(t => t.odcisk && t.status !== 'anulowana').map(t => t.odcisk));
+  // Druga zapora przed duplikatami: operacje już zaimportowane na to konto liczone po dacie i kwocie
+  // (łapie np. ten sam miesiąc wczytany raz z PDF, a raz z CSV, albo zmieniony opis w banku).
+  const wgOdcisku = new Map();
+  dane.transakcje.filter(t => t.odcisk && t.status !== 'anulowana' && t.konto === konto).forEach(t => {
+    const e = wgOdcisku.get(t.odcisk) || { data: t.data_ksiegowania || t.data_operacji, kwota: 0 };
+    e.kwota += (kierunek(t) === 'wpływ' ? 1 : -1) * (Number(t.kwota) || 0);
+    wgOdcisku.set(t.odcisk, e);
+  });
+  const zajeteDataKwota = new Map();
+  wgOdcisku.forEach((e, odc) => {
+    const k = `${e.data}|${zaokr(e.kwota).toFixed(2)}`;
+    zajeteDataKwota.set(k, (zajeteDataKwota.get(k) || 0) + 1);
+  });
   const jednostki = jednostkiDoDopasowania(konto);
   const powtorzenia = new Map();
   const wiersze = p.operacje.map((op, i) => {
@@ -397,7 +411,8 @@ function przygotuj(plikNazwa, p, konto) {
     powtorzenia.set(baza, n);
     const odcisk = `${baza}|${n}`;
     const w = { i, op, odcisk, stan: 'nowa', typ: op.kwota > 0 ? 'wpływ' : 'wydatek', kategoria: '', podkategoria: '', podmiot: podmiotKonta(konto) || '', konto2: '', kontrahent: op.kontrahent, podpowiedz: '' };
-    if (znane.has(odcisk)) { w.stan = 'juz'; return w; }
+    const kDK = `${op.data}|${op.kwota.toFixed(2)}`;
+    if (znane.has(odcisk)) { w.stan = 'juz'; zajeteDataKwota.set(kDK, (zajeteDataKwota.get(kDK) || 0) - 1); return w; }
     if (pominiete.has(odcisk)) { w.stan = 'pomin'; w.wczesniejPominieta = true; return w; }
     // przelew z / na własne konto zapisane w aplikacji
     const wlasne = op.rachunek && konta().find(k => k.nazwa !== konto && ibanyKonta(k).some(i => zgodneIbany(i, op.rachunek)));
@@ -412,6 +427,16 @@ function przygotuj(plikNazwa, p, konto) {
       w.typ = 'przeks'; w.konto2 = k2?.nazwa || '';
     }
     return w;
+  });
+
+  wiersze.forEach(w => {
+    if (w.stan !== 'nowa') return;
+    const kDK = `${w.op.data}|${w.op.kwota.toFixed(2)}`;
+    if ((zajeteDataKwota.get(kDK) || 0) > 0) {
+      zajeteDataKwota.set(kDK, zajeteDataKwota.get(kDK) - 1);
+      w.stan = 'pomin';
+      w.duplikat = true;
+    }
   });
 
   // propozycje dopasowań: najlepsze pary jako pierwsze, każdy wpis ręczny tylko raz
@@ -451,7 +476,7 @@ function opcjeKategorii(w) {
 function htmlDecyzji(w) {
   const i = w.i;
   if (w.stan === 'juz') return '<span class="znacznik">już w aplikacji</span>';
-  if (w.stan === 'pomin') return `<span class="znacznik">${w.wczesniejPominieta ? 'pominięta przy poprzednim imporcie' : 'pominięta'}</span>
+  if (w.stan === 'pomin') return `<span class="znacznik">${w.duplikat ? 'prawdopodobnie już w aplikacji – ta sama data i kwota na tym koncie' : w.wczesniejPominieta ? 'pominięta przy poprzednim imporcie' : 'pominięta'}</span>
     <button type="button" class="przycisk-maly drugorzedny" data-akcja="przywroc" data-i="${i}">Przywróć</button>`;
   if (w.stan === 'propozycja' || w.stan === 'dopasowana') {
     const inni = (w.kandydaci || []).filter(k => k.j.id !== w.jednostka.id && !zajete().has(k.j.id));
@@ -676,7 +701,7 @@ async function zapiszImport(b) {
         const tu = { ...baza, ...wspolne(w), id: uuid(), typ: wplyw ? 'przeksięgowanie-wpływ' : 'przeksięgowanie-wypływ', id_pary: para, konto: imp.konto,
           kategoria: '', podkategoria: '', zrodlo_przychodu: '', kontrahent: '', podmiot: '', opis: w.op.tytul || w.op.opis.slice(0, 200), status: 'potwierdzona' };
         const tam = { ...tu, id: uuid(), typ: wplyw ? 'przeksięgowanie-wypływ' : 'przeksięgowanie-wpływ', konto: w.konto2, partia_importu: '', odcisk: '', surowy_wiersz: '', data_ksiegowania: '',
-          status: czyWirtualne(w.konto2) ? 'bez ruchu na koncie' : 'oczekuje na wyciąg', zrodlo: 'import (druga strona)' };
+          status: statusDlaKonta(w.konto2), zrodlo: 'import (druga strona)' };
         wiersze.push(tu, tam);
       } else {
         const wplyw = w.typ === 'wpływ';

@@ -18,14 +18,14 @@ const KOLUMNY_SGT = ['podmiot', 'dok_id', 'typ', 'numer', 'data', 'magazyn_symbo
   'ob_id', 'symbol', 'nazwa', 'grupa', 'ilosc', 'jm', 'netto', 'brutto'];
 const WYMAGANE = ['podmiot', 'dok_id', 'numer', 'data', 'ob_id', 'brutto'];
 // Pola porównywane przy ponownym wklejeniu (zmiana któregoś = aktualizacja w arkuszu).
-const POLA_DOK = ['typ', 'numer', 'data', 'magazyn', 'magazyn_symbol', 'kontrahent_id', 'kontrahent', 'forma_platnosci',
+const POLA_DOK = ['status', 'typ', 'numer', 'data', 'magazyn', 'magazyn_symbol', 'kontrahent_id', 'kontrahent', 'forma_platnosci',
   'kw_gotowka', 'kw_karta', 'kw_przelew', 'kw_kredyt', 'kategoria', 'wystawil', 'netto', 'brutto', 'liczba_pozycji'];
-const POLA_POZ = ['dok_id', 'symbol', 'nazwa', 'grupa', 'ilosc', 'jm', 'netto', 'brutto'];
+const POLA_POZ = ['status', 'dok_id', 'symbol', 'nazwa', 'grupa', 'ilosc', 'jm', 'netto', 'brutto'];
 
 const stan = {
   okres: 'ten-miesiac', od: '', do: '', panel: false,
   podmioty: new Set(), magazyny: new Set(), formy: new Set(),
-  ileParagonow: 30, tekst: '', plik: '', wynik: null,
+  ileParagonow: 30, tekst: '', plik: '', wynik: null, oznaczUsuniete: true,
 };
 
 // ───────────────────────── okres ─────────────────────────
@@ -350,7 +350,7 @@ export function przeanalizuj(tekst) {
           magazyn: r.magazyn, magazyn_symbol: r.magazyn_symbol, kontrahent_id: r.kontrahent_symbol, kontrahent: r.kontrahent,
           forma_platnosci: r.forma_platnosci, kw_gotowka: zaokr(liczby.kw_gotowka), kw_karta: zaokr(liczby.kw_karta),
           kw_przelew: zaokr(liczby.kw_przelew), kw_kredyt: zaokr(liczby.kw_kredyt), kategoria: r.kategoria, wystawil: r.wystawil,
-          netto: 0, brutto: 0, liczba_pozycji: 0, okres: data.slice(0, 7), data_wklejenia: dzis, zrodlo: 'Subiekt GT – zestawienie SQL',
+          netto: 0, brutto: 0, liczba_pozycji: 0, status: '', okres: data.slice(0, 7), data_wklejenia: dzis, zrodlo: 'Subiekt GT – zestawienie SQL',
         },
         dokumentBrutto: liczby.dokument_brutto, sumaPoz: 0, pozycje: new Map(),
       };
@@ -359,15 +359,15 @@ export function przeanalizuj(tekst) {
     if (!d.pozycje.has(r.ob_id)) {
       d.pozycje.set(r.ob_id, {
         podmiot, dok_id: r.dok_id, ob_id: r.ob_id, symbol: r.symbol, nazwa: r.nazwa, grupa: r.grupa,
-        ilosc: liczby.ilosc, jm: r.jm, netto: zaokr(liczby.netto), brutto: zaokr(liczby.brutto),
+        ilosc: liczby.ilosc, jm: r.jm, netto: zaokr(liczby.netto), brutto: zaokr(liczby.brutto), status: '',
       });
       d.wiersz.netto += liczby.netto;
       d.sumaPoz += liczby.brutto;
     }
   }
 
-  const istniejace = new Map(dane.sprzedaz.map(d => [kluczDok(d), d]));
-  const istniejacePoz = new Map(dane.sprzedazPoz.map(p => [`${p.podmiot}|${p.ob_id}`, p]));
+  const istniejace = new Map(dane.sprzedazWszystkie.map(d => [kluczDok(d), d]));
+  const istniejacePoz = new Map(dane.sprzedazPozWszystkie.map(p => [`${p.podmiot}|${p.ob_id}`, p]));
   const rozne = (a, b, pola) => !b || pola.some(p => {
     const x = a[p], y = b[p];
     if (typeof x === 'number') return Math.abs(x - num(y)) > 0.004;
@@ -376,7 +376,7 @@ export function przeanalizuj(tekst) {
 
   const wynik = {
     dokumenty: [], pozycje: [], nowe: 0, zmienione: 0, bezZmian: 0, liczbaPoz: 0, suma: 0, od: '', do: '',
-    podmioty: new Set(), niezgodne: [], bledy, pominiete, formy: new Map(), magazyny: new Map(),
+    podmioty: new Set(), niezgodne: [], bledy, pominiete, formy: new Map(), magazyny: new Map(), usuniete: [],
   };
   for (const [klucz, d] of dokumenty) {
     const w = d.wiersz;
@@ -396,6 +396,9 @@ export function przeanalizuj(tekst) {
 
     const stary = istniejace.get(klucz);
     const nowePoz = [...d.pozycje.values()].filter(p => rozne(p, istniejacePoz.get(`${p.podmiot}|${p.ob_id}`), POLA_POZ));
+    // pozycje, które ktoś usunął z paragonu w Subiekcie
+    dane.sprzedazPoz.filter(p => p.podmiot === w.podmiot && String(p.dok_id) === String(w.dok_id) && !d.pozycje.has(String(p.ob_id)))
+      .forEach(p => nowePoz.push({ ...p, status: 'usunięta' }));
     if (!stary) wynik.nowe++;
     else if (rozne(w, stary, POLA_DOK) || nowePoz.length) wynik.zmienione++;
     else { wynik.bezZmian++; continue; }
@@ -404,6 +407,8 @@ export function przeanalizuj(tekst) {
   }
   wynik.suma = zaokr(wynik.suma);
   wynik.liczbaDok = dokumenty.size;
+  // paragony z tego samego podmiotu i okresu, których nie ma już w Subiekcie (usunięte lub anulowane)
+  wynik.usuniete = dane.sprzedaz.filter(x => wynik.podmioty.has(x.podmiot) && x.data >= wynik.od && x.data <= wynik.do && !dokumenty.has(kluczDok(x)));
   return wynik;
 }
 
@@ -414,7 +419,7 @@ function htmlPodgladu() {
   if (!w.liczbaDok) return `<p class="komunikat blad">Nie znalazłem żadnego paragonu w wklejonym tekście.${w.bledy.length ? ' ' + esc(w.bledy.slice(0, 3).join(' ')) : ''}</p>`;
   const api = wersjaApi();
   const stareApi = api && api < 4;
-  const doZapisu = w.nowe + w.zmienione;
+  const doZapisu = w.nowe + w.zmienione + (stan.oznaczUsuniete ? w.usuniete.length : 0);
   const lista = mapa => [...mapa.entries()].sort((a, b) => b[1] - a[1]).map(([n, v]) => `<div><dt>${esc(n)}</dt><dd>${esc(kwotaTxt(v))}</dd></div>`).join('');
   return `
     <dl class="info">
@@ -426,6 +431,9 @@ function htmlPodgladu() {
     <h3>Formy płatności</h3><dl class="info">${lista(w.formy)}</dl>
     <h3>Magazyny</h3><dl class="info">${lista(w.magazyny)}</dl>
     <p>${w.nowe ? `<b>Nowe: ${w.nowe}</b>` : 'Nowych: 0'} · zmienione: ${w.zmienione} · już w aplikacji bez zmian: ${w.bezZmian}</p>
+    ${w.usuniete.length ? `<div class="pasek-edycji"><span>W aplikacji ${odmiana(w.usuniete.length, 'jest paragon', 'są paragony', 'jest paragonów')} z tego okresu, których nie ma w wklejonym zestawieniu (${w.usuniete.length}): ${esc(w.usuniete.slice(0, 6).map(x => x.numer).join(', '))}${w.usuniete.length > 6 ? '…' : ''}.</span>
+      <label class="przelacznik"><input type="checkbox" name="oznacz-usuniete" ${stan.oznaczUsuniete ? 'checked' : ''}> Oznacz je jako usunięte w Subiekcie</label></div>
+      <p class="podpowiedz">Zaznacz tylko wtedy, gdy wkleiłeś pełne zestawienie za ten okres.</p>` : ''}
     ${w.niezgodne.length ? `<div class="pasek-edycji"><span>Suma pozycji nie zgadza się z wartością paragonu (${w.niezgodne.length}): ${esc(w.niezgodne.slice(0, 5).join('; '))}${w.niezgodne.length > 5 ? '…' : ''}. Zapiszę wartość z paragonu.</span></div>` : ''}
     ${w.bledy.length ? `<p class="komunikat blad">Pominięte wiersze z błędami (${w.bledy.length}): ${esc(w.bledy.slice(0, 4).join(' '))}${w.bledy.length > 4 ? '…' : ''}</p>` : ''}
     ${stareApi ? `<p class="komunikat blad">Skrypt arkusza ma wersję ${api}. Do zapisu sprzedaży potrzebna jest wersja 4 – wklej nowy Kod.gs i wdroż nową wersję.</p>` : ''}
@@ -473,15 +481,16 @@ async function czytajPlik(plik) {
 
 async function zapiszSprzedaz(przycisk) {
   const w = stan.wynik;
-  if (!w || !w.dokumenty.length) return;
+  const usun = stan.oznaczUsuniete ? w?.usuniete || [] : [];
+  if (!w || (!w.dokumenty.length && !usun.length)) return;
   przycisk.disabled = true;
   try {
     await sync.zapiszWiele([
-      { karta: 'SPRZEDAZ_SGT', wiersze: w.dokumenty },
+      { karta: 'SPRZEDAZ_SGT', wiersze: [...w.dokumenty, ...(stan.oznaczUsuniete ? w.usuniete.map(x => ({ ...x, status: 'usunięty' })) : [])] },
       { karta: 'SPRZEDAZ_SGT_POZ', wiersze: w.pozycje },
     ]);
     await wczytajDane();
-    toast(`Zapisano ${w.dokumenty.length} ${odmiana(w.dokumenty.length, 'paragon', 'paragony', 'paragonów')} (${[...w.podmioty].join(', ')}).`, 'ok');
+    toast(`Zapisano ${w.dokumenty.length} ${odmiana(w.dokumenty.length, 'paragon', 'paragony', 'paragonów')} (${[...w.podmioty].join(', ')})${usun.length ? `, oznaczono jako usunięte: ${usun.length}` : ''}.`, 'ok');
     stan.okres = 'wlasny';
     stan.od = w.od.slice(0, 7) + '-01';
     stan.do = w.do;
@@ -536,6 +545,7 @@ function wejscie(e) {
 
 async function zmianaPola(e) {
   const t = e.target;
+  if (t.name === 'oznacz-usuniete') { stan.oznaczUsuniete = t.checked; odswiezPodglad(); return; }
   if (t.name === 'plik-sgt' && t.files?.[0]) {
     stan.tekst = await czytajPlik(t.files[0]);
     stan.plik = t.files[0].name;

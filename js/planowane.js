@@ -4,7 +4,7 @@ import * as sync from './sync.js';
 import { $, esc, zaokr, kwotaTxt, dataLok, dodajDni, przesunDate, roznicaDni, dataSlownie, dataKrotko, uuid, odmiana, toast, okno, bezSkoku } from './util.js';
 import {
   dane, wczytajDane, konta, glowne, podmioty, kolorKonta, PRYWATNE, kluczPodmiotu, nazwaPodmiotu, kontoCelu, czyWirtualne, ikona, kolorKategorii, KOLORY, opisRytmu, aktywnePlanowane, nastepnyTermin, terminy,
-  miesiecznyKoszt, kierunekPlanu, RODZAJE_POZYCZEK, stanPozyczki,
+  miesiecznyKoszt, kierunekPlanu, RODZAJE_POZYCZEK, stanPozyczki, statusDlaKonta,
 } from './dane.js';
 import { zaplacRate, cofnijSplate, doZaplatyRaty } from './pozyczki.js';
 import { ikonaSvg } from './ikony.js';
@@ -22,7 +22,7 @@ export async function oznaczZaplacone(p) {
     kategoria: p.kategoria || '', podkategoria: p.podkategoria || '', zrodlo_przychodu: p.zrodlo_przychodu || '',
     kontrahent: p.kontrahent || p.nazwa || '', podmiot: p.podmiot || '', tagi: p.tagi || '', nr_dokumentu: '', opis: p.opis || '',
     zalacznik: '', budzet: p.budzet || '', cel: '', pozyczka_id: '', planowana_id: p.id, planowany_termin: p.nastepna_data,
-    status: 'oczekuje na wyciąg', zrodlo: 'ręczny',
+    status: statusDlaKonta(p.konto), zrodlo: 'ręczny',
   };
   const nastepny = nastepnyTermin(p);
   const plan = nastepny ? { ...p, nastepna_data: nastepny } : { ...p, status: 'zakończona' };
@@ -43,7 +43,7 @@ async function odlozNaCel(p) {
     kontrahent: '', podmiot: '', tagi: '', nr_dokumentu: '', opis: p.nazwa || '', zalacznik: '', budzet: '',
     cel: typ === 'przeksięgowanie-wpływ' ? p.budzet || '' : '', pozyczka_id: '',
     planowana_id: p.id, planowany_termin: p.nastepna_data,
-    status: wirtualne ? 'bez ruchu na koncie' : 'oczekuje na wyciąg', zrodlo: 'ręczny',
+    status: wirtualne ? 'bez ruchu na koncie' : statusDlaKonta(konto), zrodlo: 'ręczny',
   });
   const nogi = [noga('przeksięgowanie-wypływ', p.konto), noga('przeksięgowanie-wpływ', p.konto_docelowe)];
   const nastepny = nastepnyTermin(p);

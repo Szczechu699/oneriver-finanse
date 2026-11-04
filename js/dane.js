@@ -5,11 +5,16 @@ import * as sync from './sync.js';
 import { mozePrywatne } from './api.js';
 import { dataLok, dodajDni, przesunDate, roznicaDni, zaokr } from './util.js';
 
-export const dane = { slownik: [], transakcje: [], planowane: [], budzety: [], pozyczki: [], sprzedaz: [], sprzedazPoz: [], importy: [], rozliczenia: [] };
+export const dane = { slownik: [], transakcje: [], planowane: [], budzety: [], pozyczki: [], sprzedaz: [], sprzedazPoz: [], sprzedazWszystkie: [], sprzedazPozWszystkie: [], importy: [], rozliczenia: [] };
 
 export async function wczytajDane() {
   [dane.slownik, dane.transakcje, dane.planowane, dane.budzety, dane.pozyczki, dane.sprzedaz, dane.sprzedazPoz, dane.importy, dane.rozliczenia] = await Promise.all(
     ['SLOWNIK', 'TRANSAKCJE', 'PLANOWANE', 'BUDZETY', 'POZYCZKI', 'SPRZEDAZ_SGT', 'SPRZEDAZ_SGT_POZ', 'IMPORTY', 'ROZLICZENIA'].map(k => db.wiersze(k)));
+  // paragony i pozycje usunięte w Subiekcie zostają w arkuszu ze statusem, ale nie liczą się nigdzie
+  dane.sprzedazWszystkie = dane.sprzedaz;
+  dane.sprzedazPozWszystkie = dane.sprzedazPoz;
+  dane.sprzedaz = dane.sprzedaz.filter(d => !d.status);
+  dane.sprzedazPoz = dane.sprzedazPoz.filter(p => !p.status);
 }
 
 // ── Słownik ──
@@ -38,6 +43,16 @@ export const konta = (zArchiwum = false) => lista('konta', zArchiwum).map((k, i)
     podmiot: a.podmiot || '', wirtualne: Boolean(a.wirtualne) || a.typ === 'skarbonka',
   };
 });
+/** Status nowego wpisu na koncie: gotówka nie czeka na wyciąg, Skarbonka to tylko zapis. */
+export const BEZ_WYCIAGU = 'bez wyciągu';
+export function statusDlaKonta(konto, poprzedni = '') {
+  if (!konto) return poprzedni && poprzedni !== 'anulowana' ? poprzedni : 'bez ruchu na koncie';
+  const k = konta(true).find(x => x.nazwa === konto);
+  if (k?.wirtualne) return 'bez ruchu na koncie';
+  if (k?.typKonta === 'gotowka') return BEZ_WYCIAGU;
+  if (!poprzedni || ['anulowana', BEZ_WYCIAGU, 'bez ruchu na koncie'].includes(poprzedni)) return 'oczekuje na wyciąg';
+  return poprzedni;
+}
 export const czyWirtualne = nazwa => Boolean(konta(true).find(k => k.nazwa === nazwa)?.wirtualne);
 export const podmiotKonta = nazwa => konta(true).find(k => k.nazwa === nazwa)?.podmiot || '';
 export const SKARBONKA = 'Skarbonka';

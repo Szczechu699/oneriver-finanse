@@ -11,6 +11,7 @@ import {
   kierunek, grupy, grupaDla, zalaczniki, WYMIANA, RYTMY, formaRytmu, budzetyDoWyboru, aktywneBudzety, aktywneCele,
   stanBudzetu, kategorieBudzetu, podpowiedziTytulu, RODZAJE_POZYCZEK, harmonogram,
   PRYWATNE, podmiotKonta, czyWirtualne, kontoCelu, stanCelu,
+  statusDlaKonta,
 } from './dane.js';
 import { zapiszPozyczke } from './pozyczki.js';
 import { ikonaSvg } from './ikony.js';
@@ -976,7 +977,7 @@ export async function zapiszFormularz() {
     data_operacji: f.data, tagi: normTagi(), nr_dokumentu: f.nr_dokumentu.trim(), opis: f.opis.trim(), zalacznik: tekstZalacznikow(),
     dowod: czyMiedzyKontami() ? '' : f.dowod,
   };
-  const nowyStatus = orig => (orig && orig.status !== 'anulowana' ? orig.status : 'oczekuje na wyciąg');
+  const nowyStatus = (orig, konto = f.konto) => statusDlaKonta(konto, orig?.status);
   let wiersze;
 
   if (czyMiedzyKontami()) {
@@ -991,7 +992,7 @@ export async function zapiszFormularz() {
       ...kurs(orig, wal, f.data, kw),
       kategoria: f.typ === 'wymiana' ? WYMIANA : '', podkategoria: '', zrodlo_przychodu: '', kontrahent: '', podmiot: '', budzet: '',
       cel: typ === 'przeksięgowanie-wpływ' ? f.cel : '',
-      status: czyWirtualne(f.konto) || czyWirtualne(f.konto_docelowe) ? 'bez ruchu na koncie' : nowyStatus(orig), zrodlo: orig?.zrodlo || 'ręczny',
+      status: czyWirtualne(f.konto) || czyWirtualne(f.konto_docelowe) ? 'bez ruchu na koncie' : nowyStatus(orig, konto), zrodlo: orig?.zrodlo || 'ręczny',
     });
     wiersze = [
       noga(origZ, 'przeksięgowanie-wypływ', f.konto, kwota, waluta),
