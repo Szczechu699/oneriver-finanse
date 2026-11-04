@@ -129,38 +129,53 @@ function parsujMbank(tekst) {
   };
 }
 
-// ── Revolut ──
+// ── Revolut (wyciąg po polsku albo po angielsku) ──
 
-const MIESIACE = { sty: 1, lut: 2, mar: 3, kwi: 4, maj: 5, cze: 6, lip: 7, sie: 8, wrz: 9, 'paź': 10, paz: 10, lis: 11, gru: 12 };
+const MIESIACE = {
+  sty: 1, lut: 2, mar: 3, kwi: 4, maj: 5, cze: 6, lip: 7, sie: 8, wrz: 9, 'paź': 10, paz: 10, lis: 11, gru: 12,
+  jan: 1, feb: 2, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
+};
+const dwie = n => String(n).padStart(2, '0');
+/** „4 lis 2026”, „4 listopada 2026”, „Nov 4, 2026”, „November 4, 2026” → 2026-11-04 */
 function dataRevolut(s) {
-  const m = /^(\d{1,2}) (\p{L}{3})\p{L}* (\d{4})$/u.exec(String(s).trim());
-  if (!m || !MIESIACE[m[2].toLowerCase()]) return '';
-  return `${m[3]}-${String(MIESIACE[m[2].toLowerCase()]).padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  const t = String(s).trim();
+  let m = /^(\d{1,2}) (\p{L}{3})\p{L}* (\d{4})$/u.exec(t);
+  if (m && MIESIACE[m[2].toLowerCase()]) return `${m[3]}-${dwie(MIESIACE[m[2].toLowerCase()])}-${dwie(m[1])}`;
+  m = /^(\p{L}{3})\p{L}* (\d{1,2}), (\d{4})$/u.exec(t);
+  if (m && MIESIACE[m[1].toLowerCase()]) return `${m[3]}-${dwie(MIESIACE[m[1].toLowerCase()])}-${dwie(m[2])}`;
+  return '';
 }
+/** „1 205,03 PLN”, „453,03€” (polski) albo „1,205.03 PLN”, „€325.00” (angielski) → liczba */
 const kwotaRevolut = s => {
-  const m = /(-?\d[\d \u00a0]*,\d{2})/.exec(String(s));
-  return m ? Number(m[1].replace(/[ \u00a0]/g, '').replace(',', '.')) : null;
+  const t = String(s ?? '');
+  let m = /(-?\d[\d  ]*,\d{2})(?!\d)/.exec(t);
+  if (m) return Number(m[1].replace(/[  ]/g, '').replace(',', '.'));
+  m = /(-?\d[\d,]*\.\d{2})(?!\d)/.exec(t);
+  return m ? Number(m[1].replace(/,/g, '')) : null;
 };
 
 /** Główny opis i linie szczegółów z Revoluta → kontrahent, tytuł, rodzaj. */
 function rozbierzOpisRevolut(glowny, szczegoly, typ = '') {
-  const linia = prefiks => (szczegoly.find(l => l.startsWith(prefiks)) || '').slice(prefiks.length).trim();
-  const ref = linia('Dane referencyjne:');
-  const od = linia('Od:');
-  const doKogo = linia('Do:');
+  const linia = (...prefiksy) => {
+    for (const p of prefiksy) { const l = szczegoly.find(x => x.startsWith(p)); if (l) return l.slice(p.length).trim(); }
+    return '';
+  };
+  const ref = linia('Dane referencyjne:', 'Reference:');
+  const od = linia('Od:', 'From:');
+  const doKogo = linia('Do:', 'To:');
   const iban = (/,\s*([A-Z]{2}\d{2}[A-Z0-9]{10,30})\s*$/.exec(od) || [])[1] || '';
   let kontrahent = glowny, tytul = ref, rodzaj = 'inne', uwaga = '';
   let m;
-  if ((m = /^Przelew (?:od|do):\s*(.+)$/i.exec(glowny))) { kontrahent = m[1]; rodzaj = 'przelew'; }
-  else if ((m = /^Płatność od\s+(.+)$/i.exec(glowny))) { kontrahent = m[1]; rodzaj = 'przelew'; }
-  else if (/^Revolut /.test(glowny) && od) { kontrahent = od.replace(/,\s*[A-Z]{2}\d{2}[A-Z0-9]+$/, ''); rodzaj = 'przelew'; }
-  else if ((m = /^Zasilenie (?:o|z|karty)?\s*(\*\d+)/i.exec(glowny)) || /TOPUP/i.test(typ)) {
+  if ((m = /^(?:Przelew (?:od|do):|Transfer (?:from|to))\s*(.+)$/i.exec(glowny)) && !/Revolut Digital Assets/i.test(glowny)) { kontrahent = m[1]; rodzaj = 'przelew'; }
+  else if ((m = /^(?:Płatność od|Payment from)\s+(.+)$/i.exec(glowny))) { kontrahent = m[1]; rodzaj = 'przelew'; }
+  else if (/^Revolut /.test(glowny) && od && !/Digital Assets/i.test(glowny)) { kontrahent = od.replace(/,\s*[A-Z]{2}\d{2}[A-Z0-9]+$/, ''); rodzaj = 'przelew'; }
+  else if ((m = /^(?:Zasilenie (?:o|z|karty)?|Top-up by)\s*(\*\d+)/i.exec(glowny)) || /TOPUP/i.test(typ)) {
     kontrahent = `Zasilenie ${m ? m[1] : ''}`.trim(); rodzaj = 'zasilenie';
     uwaga = 'Zasilenie z Twojej karty lub konta – to zwykle przeksięgowanie między Twoimi kontami.';
   } else if (/Revolut Digital Assets/i.test(glowny)) {
     kontrahent = 'Revolut Digital Assets'; rodzaj = 'krypto'; tytul = szczegoly[0] || '';
     uwaga = 'Zakup kryptowalut – możesz go pominąć albo zapisać jako przeksięgowanie na konto inwestycyjne.';
-  } else if (szczegoly.some(l => l.startsWith('Karta:')) || doKogo) { rodzaj = 'karta'; tytul = doKogo; }
+  } else if (szczegoly.some(l => /^(Karta|Card):/.test(l)) || doKogo) { rodzaj = 'karta'; tytul = doKogo; }
   return { kontrahent: NAZWA_WIELKIMI(kontrahent.replace(/\s+\.$/, '').trim()), tytul, rodzaj, rachunek: iban.replace(/\D/g, ''), uwaga };
 }
 
@@ -179,63 +194,96 @@ function zaladujPdfjs() {
   return pdfjsObietnica;
 }
 
-/** Wyciąg Revolut w PDF: osobna część na każdą walutę, tabela Data / Opis / Wydatki / Wpływy / Saldo. */
+// Słowa z wyciągu w obu językach
+const TYTUL_WALUTY = /^(?:Wyciąg ([A-Z]{3})|([A-Z]{3}) Statement)$/;
+const SEKCJA_KONTA = /^(?:Transakcje na koncie|Account transactions)\b/i;
+const SEKCJA_INNA = /^(?:Transakcje oczekujące|Oczekujące|Pending|Transakcje cofnięte|Cofnięte|Reverted|Zestawienie sald|Balance summary|Zwroty|Refunds)\b/i;
+const NAGL_DATA = new Set(['Data', 'Date']);
+const NAGL_OPIS = new Set(['Opis', 'Description']);
+const NAGL_WYD = new Set(['Wydatki', 'Money out']);
+const NAGL_WPL = new Set(['Wpływy', 'Money in']);
+const KONTO_BIEZACE = /^(?:Konto \(rachunek bieżący\)|Account \(Current Account\))$/;
+const STOPKA = /^(?:Zgłoś kradzież|Report lost or stolen|© \d{4} Revolut)/;
+
+/**
+ * Wyciąg Revolut w PDF: osobna część na każdą walutę, tabela Data / Opis / Wydatki / Wpływy / Saldo.
+ * Bierzemy tylko „Transakcje na koncie” (Account transactions) – oczekujące i cofnięte pomijamy.
+ */
 async function parsujRevolutPdf(bufor) {
   const pdfjs = await zaladujPdfjs();
   const doc = await pdfjs.getDocument({ data: new Uint8Array(bufor) }).promise;
   const sekcje = new Map();
   let tekstCaly = '';
+  let sekcjaKonta = false;          // czy jesteśmy w części „Transakcje na koncie” (przechodzi na kolejną stronę)
+  let walutaPoprzednia = '';
   for (let n = 1; n <= doc.numPages; n++) {
     const strona = await doc.getPage(n);
     const elementy = (await strona.getTextContent()).items
       .filter(i => i.str.trim())
       .map(i => ({ s: i.str.trim(), x: i.transform[4], y: i.transform[5], h: i.height }));
     tekstCaly += elementy.map(e => e.s).join(' ') + ' ';
-    const tytul = elementy.find(e => /^Wyciąg [A-Z]{3}$/.test(e.s));
+    const tytul = elementy.map(e => TYTUL_WALUTY.exec(e.s)).find(Boolean);
     if (!tytul) continue;
-    const waluta = tytul.s.slice(-3);
+    const waluta = tytul[1] || tytul[2];
+    if (waluta !== walutaPoprzednia) { sekcjaKonta = false; walutaPoprzednia = waluta; }
     if (!sekcje.has(waluta)) sekcje.set(waluta, { waluta, ibany: [], nazwaRachunku: 'Revolut ' + waluta, operacje: [], od: '', do: '', kontrola: null });
     const sek = sekcje.get(waluta);
     elementy.filter(e => /^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/.test(e.s)).forEach(e => { if (!sek.ibany.includes(e.s)) sek.ibany.push(e.s); });
 
     // zestawienie sald (pierwsza strona waluty) – do kontroli sum
-    const konto = elementy.find(e => e.s === 'Konto (rachunek bieżący)');
+    const konto = elementy.find(e => KONTO_BIEZACE.test(e.s));
     if (konto) {
       const wiersz = elementy.filter(e => Math.abs(e.y - konto.y) < 1 && e !== konto).sort((a, b) => a.x - b.x).map(e => kwotaRevolut(e.s));
-      if (wiersz.length >= 4) sek.kontrola = { start: wiersz[0], wydatki: -wiersz[1], wplywy: wiersz[2], koniec: wiersz[3] };
+      if (wiersz.length >= 4 && wiersz.every(v => v != null)) sek.kontrola = { start: wiersz[0], wydatki: -wiersz[1], wplywy: wiersz[2], koniec: wiersz[3] };
     }
-    const okres = /od (\d{1,2} \p{L}+ \d{4}) do (\d{1,2} \p{L}+ \d{4})/u.exec(elementy.map(e => e.s).join(' '));
-    if (okres) { sek.od = sek.od || dataRevolut(okres[1].replace(/(\p{L}{3})\p{L}*/u, '$1')); sek.do = dataRevolut(okres[2].replace(/(\p{L}{3})\p{L}*/u, '$1')); }
+    for (const e of elementy.filter(x => SEKCJA_KONTA.test(x.s))) {
+      const okres = /od (\d{1,2} \p{L}+ \d{4}) do (\d{1,2} \p{L}+ \d{4})/u.exec(e.s) || /from (\p{L}+ \d{1,2}, \d{4}) to (\p{L}+ \d{1,2}, \d{4})/u.exec(e.s);
+      if (okres) { sek.od = sek.od || dataRevolut(okres[1]); sek.do = dataRevolut(okres[2]); }
+    }
 
-    // tabela operacji
-    const naglData = elementy.find(e => e.s === 'Data' && elementy.some(o => o.s === 'Opis' && Math.abs(o.y - e.y) < 1));
-    if (!naglData) continue;
-    const kol = nazwa => elementy.find(e => e.s === nazwa && Math.abs(e.y - naglData.y) < 1)?.x;
-    const xOpis = kol('Opis'), xWyd = kol('Wydatki'), xWpl = kol('Wpływy');
-    const dol = Math.max(...elementy.filter(e => /^Zgłoś kradzież|^© \d{4} Revolut/.test(e.s)).map(e => e.y), 0) + 4;
-    const tabela = elementy.filter(e => e.y < naglData.y - 1 && e.y > dol);
-    const daty = tabela.filter(e => e.x < xOpis - 2 && e.h > 6 && dataRevolut(e.s)).sort((a, b) => b.y - a.y);
-    daty.forEach((d, i) => {
-      const nastepna = daty[i + 1]?.y ?? dol;
-      const blok = tabela.filter(e => e.y <= d.y + 1 && e.y > nastepna + 1 && e !== d);
-      const wKolumnie = (od, do_) => blok.filter(e => e.x >= od - 2 && e.x < do_ - 2).sort((a, b) => b.y - a.y);
-      const opisy = wKolumnie(xOpis, xWyd);
-      const glowny = opisy.find(e => e.h > 6)?.s || '';
-      const szczegoly = opisy.filter(e => e.h <= 6).map(e => e.s);
-      const wyd = wKolumnie(xWyd, xWpl);
-      const wpl = wKolumnie(xWpl, xWpl + 75);
-      const kwWyd = kwotaRevolut(wyd.find(e => e.h > 6)?.s);
-      const kwWpl = kwotaRevolut(wpl.find(e => e.h > 6)?.s);
-      const kwota = kwWyd != null ? -kwWyd : kwWpl;
-      if (kwota == null) return;
-      const oryginal = [...wyd, ...wpl].find(e => e.h <= 6)?.s || '';
-      const r = rozbierzOpisRevolut(glowny, szczegoly);
-      const opis = [glowny, ...szczegoly.filter(l => !l.startsWith('Karta:'))].join(' · ') + (oryginal ? ` · ${oryginal}` : '');
-      sek.operacje.push({
-        data: dataRevolut(d.s), data_ksiegowania: '', opis, kwota, waluta, kategoria_banku: '', rodzajOp: r.rodzaj,
-        ...r, tytul: r.tytul || (oryginal ? `oryginalnie ${oryginal}` : ''), surowy: [d.s, glowny, ...szczegoly, kwWyd ?? '', kwWpl ?? '', oryginal].join(' | '),
+    // nagłówki części na stronie (duża czcionka) – która część obejmuje który wiersz
+    const naglowki = elementy.filter(e => e.h > 10 && (SEKCJA_KONTA.test(e.s) || SEKCJA_INNA.test(e.s))).sort((a, b) => b.y - a.y);
+    const czescDla = y => {
+      const nad = naglowki.filter(h => h.y > y);
+      return nad.length ? SEKCJA_KONTA.test(nad[nad.length - 1].s) : sekcjaKonta;
+    };
+    // nagłówki tabel (Data | Opis | Wydatki | Wpływy)
+    const tabele = elementy.filter(e => NAGL_DATA.has(e.s) && elementy.some(o => NAGL_OPIS.has(o.s) && Math.abs(o.y - e.y) < 1))
+      .map(e => {
+        const kol = zbior => elementy.find(o => zbior.has(o.s) && Math.abs(o.y - e.y) < 1)?.x;
+        return { y: e.y, xOpis: kol(NAGL_OPIS), xWyd: kol(NAGL_WYD), xWpl: kol(NAGL_WPL) };
+      }).filter(t => t.xOpis && t.xWyd && t.xWpl).sort((a, b) => b.y - a.y);
+    const dol = Math.max(...elementy.filter(e => STOPKA.test(e.s)).map(e => e.y), 0) + 4;
+    if (naglowki.length) sekcjaKonta = SEKCJA_KONTA.test(naglowki[naglowki.length - 1].s);
+
+    for (const [ti, tab] of tabele.entries()) {
+      // tabela kończy się na następnym nagłówku części albo tabeli
+      const granica = Math.max(dol, ...naglowki.filter(h => h.y < tab.y).map(h => h.y + 2), ...tabele.slice(ti + 1).map(t => t.y + 2));
+      if (!czescDla(tab.y)) continue;
+      const tabela = elementy.filter(e => e.y < tab.y - 1 && e.y > granica);
+      const daty = tabela.filter(e => e.x < tab.xOpis - 2 && e.h > 6 && dataRevolut(e.s)).sort((a, b) => b.y - a.y);
+      daty.forEach((d, i) => {
+        const nastepna = daty[i + 1]?.y ?? granica;
+        const blok = tabela.filter(e => e.y <= d.y + 1 && e.y > nastepna + 1 && e !== d);
+        const wKolumnie = (od, do_) => blok.filter(e => e.x >= od - 2 && e.x < do_ - 2).sort((a, b) => b.y - a.y);
+        const opisy = wKolumnie(tab.xOpis, tab.xWyd);
+        const glowny = opisy.find(e => e.h > 6)?.s || '';
+        const szczegoly = opisy.filter(e => e.h <= 6).map(e => e.s);
+        const wyd = wKolumnie(tab.xWyd, tab.xWpl);
+        const wpl = wKolumnie(tab.xWpl, tab.xWpl + 75);
+        const kwWyd = kwotaRevolut(wyd.find(e => e.h > 6)?.s);
+        const kwWpl = kwotaRevolut(wpl.find(e => e.h > 6)?.s);
+        const kwota = kwWyd != null ? -kwWyd : kwWpl;
+        if (kwota == null) return;
+        const oryginal = [...wyd, ...wpl].find(e => e.h <= 6)?.s || '';
+        const r = rozbierzOpisRevolut(glowny, szczegoly);
+        const opis = [glowny, ...szczegoly.filter(l => !/^(Karta|Card):/.test(l))].join(' · ') + (oryginal ? ` · ${oryginal}` : '');
+        sek.operacje.push({
+          data: dataRevolut(d.s), data_ksiegowania: '', opis, kwota, waluta, kategoria_banku: '', rodzajOp: r.rodzaj,
+          ...r, tytul: r.tytul || (oryginal ? `oryginalnie ${oryginal}` : ''), surowy: [d.s, glowny, ...szczegoly, kwWyd ?? '', kwWpl ?? '', oryginal].join(' | '),
+        });
       });
-    });
+    }
   }
   if (!/Revolut/.test(tekstCaly)) return null;
   const lista_ = [...sekcje.values()];
@@ -598,7 +646,7 @@ function renderPrzeglad() {
       <button type="button" class="przycisk-maly drugorzedny akcja-naglowka" data-akcja="anuluj-import">Inny plik</button></div>
     <div class="kafle-wskaznikow">
       <div class="wskaznik"><span class="etykieta-wsk">Plik</span><b>${p.operacje.length}</b><span class="zmiana">${esc(p.od ? `${dataKrotko(p.od)} – ${dataKrotko(p.do)} ${p.do.slice(0, 4)}` : imp.plikNazwa)}</span></div>
-      <div class="wskaznik"><span class="etykieta-wsk">Wpływy / wydatki</span><b class="mniejsze">+${esc(kwotaTxt(wplywy, p.waluta))}<br>−${esc(kwotaTxt(-wydatki, p.waluta))}</b><span class="zmiana">${p.kontrola ? (zgodne ? '✓ zgodne z sumami banku' : '⚠ nie zgadza się z sumami banku') : ''}${p.kontrola?.koniec != null ? ` · saldo końcowe ${esc(kwotaTxt(p.kontrola.koniec, p.waluta))}` : ''}</span></div>
+      <div class="wskaznik"><span class="etykieta-wsk">Wpływy / wydatki</span><b class="mniejsze">+${esc(kwotaTxt(wplywy, p.waluta))}<br>−${esc(kwotaTxt(Math.abs(wydatki), p.waluta))}</b><span class="zmiana">${p.kontrola ? (zgodne ? '✓ zgodne z sumami banku' : '⚠ nie zgadza się z sumami banku') : ''}${p.kontrola?.koniec != null ? ` · saldo końcowe ${esc(kwotaTxt(p.kontrola.koniec, p.waluta))}` : ''}</span></div>
       <div class="wskaznik ${l.propozycja ? 'wyroznione' : ''}"><span class="etykieta-wsk">Do zatwierdzenia</span><b>${l.propozycja}</b><span class="zmiana">połączone: ${l.dopasowana}</span></div>
       <div class="wskaznik"><span class="etykieta-wsk">Nowe</span><b>${l.nowa}</b><span class="zmiana">${l['bez-kategorii']} bez kategorii · już w aplikacji: ${l.juz}</span></div>
     </div>
