@@ -3,6 +3,7 @@
 const SCIEZKI = {
   podsumowanie: '<path d="M3 20h18"/><rect x="5" y="11" width="3.5" height="6" rx="1"/><rect x="10.25" y="5" width="3.5" height="12" rx="1"/><rect x="15.5" y="8" width="3.5" height="9" rx="1"/>',
   sprzedaz: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/>',
+  dziennik: '<path d="M6 3h11a2 2 0 0 1 2 2v16H8a2 2 0 0 1-2-2z"/><path d="M6 19a2 2 0 0 1 2-2h11M10 7h5M10 11h5"/>',
   dodaj: '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>',
   lista: '<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/>',
   planowane: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18M8 14h3M8 17h6"/>',

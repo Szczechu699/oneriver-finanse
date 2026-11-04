@@ -38,7 +38,7 @@ function nowyFormularz(zostaw = {}) {
     kategoria: '', podkategoria: '', podzial: null, podzialId: null,
     kontrahent: '', podmiot: zostaw.podmiot ?? pam.podmiot ?? '',
     tagi: '', data: zostaw.data || dzis,
-    nr_dokumentu: '', opis: '', budzet: '', cel: '',
+    nr_dokumentu: '', dowod: '', opis: '', budzet: '', cel: '',
     zalaczniki: [],
     powtarzanie: 'miesiąc', co_ile: '1', data_koniec: '', subskrypcja: false,
     pozyczka: {
@@ -58,7 +58,7 @@ function formularzZGrupy(g) {
   const nf = nowyFormularz();
   const wspolne = {
     tryb: 'edycja', data: t.data_operacji || dataLok(), tagi: t.tagi || '', nr_dokumentu: t.nr_dokumentu || '',
-    opis: t.opis || '', zalaczniki: zalaczniki(t.zalacznik),
+    dowod: t.dowod || '', opis: t.opis || '', zalaczniki: zalaczniki(t.zalacznik),
   };
   if (g.rodzaj === 'przeksiegowanie' || g.rodzaj === 'wymiana') {
     return {
@@ -356,10 +356,28 @@ function podpowiedzLimitu() {
   }).join('');
 }
 
+const DOWODY = [['', 'Brak'], ['paragon', 'Paragon'], ['faktura', 'Faktura'], ['rachunek', 'Rachunek'], ['inny', 'Inny']];
+
+function htmlDowodu() {
+  if (czyMiedzyKontami() || czyPozyczka()) return '';
+  const nazwa = DOWODY.find(d => d[0] === f.dowod)?.[1] || '';
+  return `<div class="dowod">
+    <span class="etykieta">Dowód zakupu</span>
+    <div class="chipy male">${DOWODY.map(([v, e]) =>
+      `<button type="button" class="chip" data-akcja="dowod" data-v="${v}" aria-pressed="${f.dowod === v}">${e}</button>`).join('')}</div>
+    ${f.dowod ? `<label class="pole"><span class="etykieta">Numer ${f.dowod === 'faktura' ? 'faktury' : 'dokumentu'}${f.dowod === 'faktura' ? '' : ' (opcjonalnie)'}</span>
+      <input name="nr_dokumentu" autocomplete="off" value="${esc(f.nr_dokumentu)}" placeholder="${f.dowod === 'faktura' ? 'np. FV 123/11/2026' : ''}"></label>
+      <span class="podpowiedz">${f.dowod === 'faktura'
+        ? 'Zdjęcie lub plik trafi na Dysk do folderu „Faktury” (podfolder miesiąca) z nazwą: data, numer, kwota i kontrahent.'
+        : `Plik dostanie nazwę z datą, słowem „${esc(nazwa)}”, numerem i kwotą.`}</span>` : ''}
+  </div>`;
+}
+
 function htmlZalacznikow() {
   const pliki = f.zalaczniki;
   return `<fieldset class="pole">
-    <legend>Załączniki</legend>
+    <legend>${czyMiedzyKontami() || czyPozyczka() ? 'Załączniki' : 'Dowód i załączniki'}</legend>
+    ${htmlDowodu()}
     ${pliki.length ? `<ul class="zalaczniki">${pliki.map((z, i) => `
       <li>${z.url ? `<a href="${esc(z.url)}" target="_blank" rel="noopener">${esc(z.nazwa)}</a>` : `<span>${esc(z.nazwa)}</span>`}
         ${!z.url ? `<span class="znacznik wysylka">${z.nowy ? 'nowy' : 'czeka na wysłanie'}</span>` : ''}
@@ -369,7 +387,7 @@ function htmlZalacznikow() {
       <label class="chip"><input type="file" accept="image/*" multiple data-plik="zdjecie" hidden>Wybierz zdjęcie</label>
       <label class="chip"><input type="file" accept="image/*,application/pdf,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt" multiple data-plik="plik" hidden>Wybierz plik</label>
     </div>
-    <span class="podpowiedz">Pliki trafią do folderu „One River – Finanse – załączniki” na Dysku Google.</span>
+    ${f.dowod ? '' : '<span class="podpowiedz">Pliki trafią do folderu „One River – Finanse – załączniki” na Dysku Google.</span>'}
   </fieldset>`;
 }
 
@@ -575,12 +593,12 @@ export function renderDodaj(trasa = null, id = null) {
 
       ${plan ? '' : htmlZalacznikow()}
 
-      <details class="wiecej" ${f.tagi || f.nr_dokumentu || f.opis ? 'open' : ''}>
-        <summary>Opis, numer dokumentu, tagi</summary>
+      <details class="wiecej" ${f.tagi || (f.nr_dokumentu && !f.dowod) || f.opis ? 'open' : ''}>
+        <summary>${f.dowod ? 'Opis, tagi' : 'Opis, numer dokumentu, tagi'}</summary>
         <label class="pole"><span class="etykieta">Opis</span>
           <textarea name="opis" rows="2" placeholder="${pozyczka ? 'Na co, warunki, ustalenia' : 'Co to było?'}">${esc(f.opis)}</textarea></label>
         <div class="rzad">
-          ${plan || pozyczka ? '' : `<label class="pole"><span class="etykieta">Numer dokumentu</span>
+          ${plan || pozyczka || f.dowod ? '' : `<label class="pole"><span class="etykieta">Numer dokumentu</span>
             <input name="nr_dokumentu" autocomplete="off" value="${esc(f.nr_dokumentu)}" placeholder="faktura, paragon"></label>`}
           <label class="pole"><span class="etykieta">Tagi, po przecinku</span>
             <input name="tagi" list="lista-tagow" autocomplete="off" value="${esc(f.tagi)}" placeholder="np. Kiermasz Koneser">
@@ -686,6 +704,7 @@ export function obsluzKlik(e) {
     case 'p-zwrot': f.pozyczka.zwrot = v; break;
     case 'p-konto_splat': f.pozyczka.konto_splat = v; break;
     case 'usun-zalacznik': f.zalaczniki.splice(Number(v), 1); break;
+    case 'dowod': f.dowod = v; break;
     case 'anuluj': anuluj(); return;
     default: return;
   }
@@ -788,6 +807,7 @@ async function dodajPliki(lista_, zAparatu) {
 
 function blad(kwota) {
   if (!(kwota > 0)) return 'Wpisz kwotę większą od zera.';
+  if (f.dowod === 'faktura' && !czyPlan() && !czyMiedzyKontami() && !czyPozyczka() && !f.nr_dokumentu.trim()) return 'Wpisz numer faktury.';
   if (czyPozyczka()) {
     const p = f.pozyczka;
     if (!f.kontrahent.trim()) return 'Wpisz, kogo dotyczy pożyczka.';
@@ -837,7 +857,18 @@ function kurs(orig, waluta, data, kwota) {
 
 const tekstZalacznikow = () => f.zalaczniki.map(z => z.nowy ? `${z.nazwa} | oczekuje:${z.plik_id}` : z.linia).join('\n');
 const normTagi = () => f.tagi.split(',').map(s => s.trim()).filter(Boolean).join(', ');
-const nowePliki = () => f.zalaczniki.filter(z => z.nowy).map(z => ({ plik_id: z.plik_id, nazwa: z.nazwa, mime: z.mime, blob: z.blob, data: f.data }));
+/** Nowe pliki do wysłania; przy wybranym dowodzie zakupu skrypt nada im czytelną nazwę (a faktury odłoży do „Faktury”). */
+function nowePliki(kwota = 0) {
+  const dowod = f.dowod && !czyMiedzyKontami() && !czyPozyczka();
+  const juz = f.zalaczniki.filter(z => !z.nowy).length;
+  return f.zalaczniki.filter(z => z.nowy).map((z, i) => ({
+    plik_id: z.plik_id, nazwa: z.nazwa, mime: z.mime, blob: z.blob, data: f.data,
+    dowod: dowod ? {
+      rodzaj: f.dowod, nr: f.nr_dokumentu.trim(), kwota, waluta: walutaFormularza(), kontrahent: f.kontrahent.trim(),
+      numer_pliku: juz + i + 1,
+    } : null,
+  }));
+}
 
 async function zapiszPlan(kwota) {
   const o = f.planOryginal;
@@ -927,6 +958,7 @@ export async function zapiszFormularz() {
 
   const wspolne = {
     data_operacji: f.data, tagi: normTagi(), nr_dokumentu: f.nr_dokumentu.trim(), opis: f.opis.trim(), zalacznik: tekstZalacznikow(),
+    dowod: czyMiedzyKontami() ? '' : f.dowod,
   };
   const nowyStatus = orig => (orig && orig.status !== 'anulowana' ? orig.status : 'oczekuje na wyciąg');
   let wiersze;
@@ -990,7 +1022,7 @@ export async function zapiszFormularz() {
   }
 
   if (!czyMiedzyKontami()) wiersze.push(...zdjecieZeSkarbonki(wiersze));
-  await sync.zapisz('TRANSAKCJE', wiersze, nowePliki());
+  await sync.zapisz('TRANSAKCJE', wiersze, nowePliki(kwota));
   zapamietaj({ konto: f.konto, podmiot: f.podmiot });
   await wczytajDane();
   const offline = !navigator.onLine;

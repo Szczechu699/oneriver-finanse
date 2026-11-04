@@ -778,3 +778,27 @@ kbd { font: 600 12.5px ui-monospace, Menlo, Consolas, monospace; padding: 1px 6p
 .zakonczone-sub { margin-top: 18px; }
 .zakonczone-sub > summary { cursor: pointer; font-weight: 700; color: var(--szary); padding: 8px 4px; }
 .zakonczone-sub .dzien h2 { display: none; }
+
+/* ───────── wersja 0.7: dowód zakupu, dziennik zdarzeń ───────── */
+.dowod { display: grid; gap: 8px; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px dashed var(--linia); }
+.dowod .chipy.male { margin-top: 0; }
+.dowod .pole { margin: 4px 0 0; }
+.filtr-dziennika { display: flex; align-items: center; gap: 8px; }
+.filtr-dziennika .etykieta { margin: 0; }
+.filtr-dziennika select { min-height: 40px; width: auto; max-width: 240px; }
+.lista-dziennika { list-style: none; margin: 0; padding: 0; background: var(--papier); border: 1px solid var(--linia); border-radius: var(--r-duzy); }
+.wpis-dziennika { display: grid; grid-template-columns: 52px 1fr; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--linia); }
+.wpis-dziennika:last-child { border-bottom: 0; }
+.godzina-wpisu { font-variant-numeric: tabular-nums; color: var(--szary); font-size: 14px; padding-top: 2px; }
+.tresc-wpisu { display: grid; gap: 4px; min-width: 0; }
+.naglowek-wpisu { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 14px; }
+.modul-wpisu { color: var(--szary); }
+.osoba-wpisu { margin-left: auto; font-weight: 700; }
+.obiekt-wpisu { overflow-wrap: anywhere; }
+.znacznik.akcja-dodano { background: #DDEFE3; color: #1E5B33; }
+.znacznik.akcja-anulowano { background: #F6DADA; color: #8A2323; }
+.znacznik.akcja-zmieniono { background: #F3E6C4; color: #6A4A06; }
+.zmiany-wpisu { margin: 2px 0 0; padding-left: 18px; font-size: 13.5px; color: var(--szary); overflow-wrap: anywhere; }
+.dzien-dziennika h2 { font-size: 15px; color: var(--szary); margin: 22px 4px 8px; font-weight: 700; }
+.dzien-dziennika h2::first-letter { text-transform: uppercase; }
+.obiekt-wpisu a { color: inherit; text-decoration: underline; text-decoration-color: var(--linia); text-underline-offset: 3px; }

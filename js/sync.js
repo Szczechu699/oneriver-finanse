@@ -73,13 +73,15 @@ function naBase64(blob) {
   });
 }
 
-/** Linia w kolumnie „zalacznik”: „nazwa | link” albo „nazwa | oczekuje:<plik_id>”. */
-async function podmienZnacznik(plikId, url) {
+/** Linia w kolumnie „zalacznik”: „nazwa | link” albo „nazwa | oczekuje:<plik_id>”. Po wysłaniu nazwa = nazwa pliku na Dysku. */
+async function podmienZnacznik(plikId, url, nazwaNaDysku) {
   const znacznik = 'oczekuje:' + plikId;
+  const podmien = tekst => String(tekst).split('\n')
+    .map(l => (l.includes(znacznik) ? `${nazwaNaDysku ? nazwaNaDysku.replace(/\|/g, '-') : l.split(' | ')[0]} | ${url}` : l)).join('\n');
   for (const karta of ['TRANSAKCJE', 'PLANOWANE']) {
     const zmienione = (await db.wiersze(karta))
       .filter(w => String(w.zalacznik || '').includes(znacznik))
-      .map(w => ({ ...w, zalacznik: String(w.zalacznik).split(znacznik).join(url) }));
+      .map(w => ({ ...w, zalacznik: podmien(w.zalacznik) }));
     if (!zmienione.length) continue;
     await db.zapiszWiersze(karta, zmienione, KLUCZE[karta]);
     for (const w of zmienione) await db.kolejkaDodaj(karta, KLUCZE[karta](w), w);
@@ -92,8 +94,10 @@ async function wyslijPliki() {
   for (const p of lista) {
     try {
       const dane = await naBase64(p.blob);
-      const wynik = await wywolaj('zalacznik', { plik_id: p.plik_id, nazwa: p.nazwa, mime: p.mime, dane, data: p.data }, 180000);
-      await podmienZnacznik(p.plik_id, wynik.url);
+      const wynik = await wywolaj('zalacznik', {
+        plik_id: p.plik_id, nazwa: p.nazwa, mime: p.mime, dane, data: p.data, dowod: p.dowod || null, kto: ustawienia().kto || '',
+      }, 180000);
+      await podmienZnacznik(p.plik_id, wynik.url, wynik.nazwa);
       await db.plikUsun(p.plik_id);
     } catch (e) {
       blad = 'Załącznik „' + p.nazwa + '”: ' + e.message;

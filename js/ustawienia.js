@@ -6,8 +6,8 @@ import { ustawienia, zapiszUstawienia, skonfigurowane, wywolaj, wersjaApi } from
 import { $, esc, toast, okno } from './util.js';
 import { dane, wczytajDane, konta } from './dane.js';
 
-export const WERSJA = '0.6.1';
-export const WYMAGANE_API = 4;
+export const WERSJA = '0.7.0';
+export const WYMAGANE_API = 5;
 
 export function render(komunikat = '') {
   const u = ustawienia();
@@ -21,7 +21,7 @@ export function render(komunikat = '') {
       <p>Wpisz adres API i token z arkusza „One River – Finanse”. Zapiszą się tylko na tym urządzeniu.</p>
     </div>` : `<h1>Ustawienia</h1>`}
 
-    ${!pierwszy && api && api < WYMAGANE_API ? `<div class="pasek-edycji"><span>Skrypt arkusza ma wersję ${api}, a ta wersja aplikacji potrzebuje ${WYMAGANE_API}. Wklej nowy plik Kod.gs w Apps Script i wdroż nową wersję. Do tego czasu nowe moduły (pożyczki, sprzedaż z Subiektu) mogą nie zapisywać się w arkuszu.</span></div>` : ''}
+    ${!pierwszy && api && api < WYMAGANE_API ? `<div class="pasek-edycji"><span>Skrypt arkusza ma wersję ${api}, a ta wersja aplikacji potrzebuje ${WYMAGANE_API}. Wklej nowy plik Kod.gs w Apps Script i wdroż nową wersję. Do tego czasu nowe funkcje (faktury w folderze „Faktury”, kopie zapasowe, dziennik zdarzeń) nie działają.</span></div>` : ''}
 
     <form class="karta-ustawien" data-forma="polaczenie" novalidate>
       <h2>Połączenie z arkuszem</h2>
@@ -54,12 +54,57 @@ export function render(komunikat = '') {
       </div>
     </div>
 
+    <div class="karta-ustawien" id="karta-kopii">
+      <h2>Kopia zapasowa</h2>
+      <p>Kopia całego arkusza zapisuje się na Dysku w folderze „Kopie zapasowe” (obok załączników). Zostaje 30 najnowszych.</p>
+      <div id="kopie-info"><p class="podpowiedz">Sprawdzam ostatnie kopie…</p></div>
+      <div class="przyciski">
+        <button type="button" data-akcja="kopia">Zrób kopię teraz</button>
+        <a class="przycisk drugorzedny" href="#dziennik">Dziennik zdarzeń</a>
+      </div>
+    </div>
+
     <div class="karta-ustawien">
       <h2>To urządzenie</h2>
       <p>Wersja aplikacji ${WERSJA}. Dane działają bez internetu i wysyłają się same, gdy wróci połączenie.</p>
       <div class="przyciski"><button type="button" class="niebezpieczny" data-akcja="wyczysc">Usuń dane z tego urządzenia</button></div>
     </div>`}
   </section>`;
+}
+
+async function wczytajKopie() {
+  const el = $('#kopie-info');
+  if (!el) return;
+  const api = wersjaApi();
+  if (api && api < 5) { el.innerHTML = `<p class="podpowiedz">Kopie zapasowe wymagają skryptu arkusza w wersji 5 (teraz: ${api}).</p>`; return; }
+  if (!navigator.onLine) { el.innerHTML = '<p class="podpowiedz">Bez internetu – nie mogę sprawdzić kopii.</p>'; return; }
+  try {
+    const k = await wywolaj('kopie', {}, 60000);
+    const ost = k.kopie[0];
+    if (!$('#kopie-info')) return;
+    $('#kopie-info').innerHTML = `<dl class="info">
+        <div><dt>Ostatnia kopia</dt><dd>${ost ? `<a href="${esc(ost.url)}" target="_blank" rel="noopener">${esc(new Date(ost.kiedy).toLocaleString('pl-PL', { dateStyle: 'medium', timeStyle: 'short' }))}</a>` : 'jeszcze nie było'}</dd></div>
+        <div><dt>Kopii w folderze</dt><dd><a href="${esc(k.folder)}" target="_blank" rel="noopener">${k.liczba}</a></dd></div>
+        <div><dt>Kopia codzienna (ok. 3:00)</dt><dd>${k.codzienna ? 'włączona' : 'wyłączona – włącza się funkcją wlaczKopieCodzienna w Apps Script'}</dd></div>
+      </dl>`;
+  } catch (e) {
+    if ($('#kopie-info')) $('#kopie-info').innerHTML = `<p class="komunikat blad">${esc(e.message)}</p>`;
+  }
+}
+
+async function zrobKopie(b) {
+  b.disabled = true;
+  b.textContent = 'Tworzę kopię…';
+  try {
+    const k = await wywolaj('kopia', { kto: ustawienia().kto || '' }, 120000);
+    toast(`Kopia gotowa: ${k.nazwa}`, 'ok', 6000);
+    await wczytajKopie();
+  } catch (e) {
+    toast('Nie udało się zrobić kopii: ' + e.message, 'blad', 7000);
+  } finally {
+    b.disabled = false;
+    b.textContent = 'Zrób kopię teraz';
+  }
 }
 
 async function zapiszPolaczenie(form) {
@@ -103,6 +148,8 @@ async function klik(e) {
     const i = b.previousElementSibling;
     i.type = i.type === 'password' ? 'text' : 'password';
     b.textContent = i.type === 'password' ? 'Pokaż' : 'Ukryj';
+  } else if (akcja === 'kopia') {
+    await zrobKopie(b);
   } else if (akcja === 'synchronizuj' || akcja === 'pelna') {
     b.disabled = true;
     await sync.synchronizuj({ pelna: akcja === 'pelna' });
@@ -124,4 +171,4 @@ async function klik(e) {
   }
 }
 
-export const ekran = { render: () => render(), klik, submit: form => { if (form.dataset.forma === 'polaczenie') zapiszPolaczenie(form); } };
+export const ekran = { render: () => { render(); if (skonfigurowane()) wczytajKopie(); }, klik, submit: form => { if (form.dataset.forma === 'polaczenie') zapiszPolaczenie(form); } };

@@ -14,6 +14,7 @@ import { ekranDane, ekranKonta, ekranKonto, ekranKategorie, ekranKategoria, ekra
 import { ekran as ekranUstawien } from './ustawienia.js';
 import { ekran as ekranPodsumowania } from './podsumowanie.js';
 import { ekran as ekranSprzedazy } from './sprzedaz.js';
+import { ekran as ekranDziennika } from './dziennik.js';
 
 // Pozycje menu: [trasa, etykieta, ikona, na telefonie w dolnym pasku?]
 const MENU = [
@@ -26,6 +27,7 @@ const MENU = [
   ['pozyczki', 'Pożyczki', 'pozyczki', false],
   ['budzety', 'Budżety i cele', 'budzety', false],
   ['dane', 'Edytuj dane', 'dane', false],
+  ['dziennik', 'Dziennik zdarzeń', 'dziennik', false],
   ['ustawienia', 'Ustawienia', 'ustawienia', false],
 ];
 
@@ -38,7 +40,7 @@ const TRASY = {
   budzety: [ekranBudzety, 'budzety'], budzet: [ekranBudzet, 'budzety'],
   dane: [ekranDane, 'dane'], konta: [ekranKonta, 'dane'], konto: [ekranKonto, 'dane'],
   kategorie: [ekranKategorie, 'dane'], kategoria: [ekranKategoria, 'dane'], tytuly: [ekranTytuly, 'dane'],
-  ustawienia: [ekranUstawien, 'ustawienia'],
+  ustawienia: [ekranUstawien, 'ustawienia'], dziennik: [ekranDziennika, 'dziennik'],
 };
 
 let aktywny = null;
