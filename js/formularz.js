@@ -14,6 +14,7 @@ import {
   statusDlaKonta,
 } from './dane.js';
 import { zapiszPozyczke } from './pozyczki.js';
+import { nowaKategoria } from './kategorie.js';
 import { ikonaSvg } from './ikony.js';
 import { czyWplywDoRozliczenia, rozliczonoTransakcji, zostaloWplywu } from './rozliczenia.js';
 
@@ -342,7 +343,10 @@ function siatkaKategorii(typ = f.typ) {
         style="--tlo:${esc(atrybuty(k).kolor || KOLORY[i % 10])}">
         <span class="ikona" aria-hidden="true">${esc(atrybuty(k).ikona || ikona(k.nazwa, typ))}</span>
         <span class="nazwa">${esc(k.nazwa)}</span>
-      </button>`).join('')}</div>`;
+      </button>`).join('')}
+      <button type="button" class="kafel kafel-nowy" data-akcja="nowa-kategoria">
+        <span class="ikona" aria-hidden="true">＋</span><span class="nazwa">Nowa ${typ === 'wpływ' ? 'pozycja' : 'kategoria'}</span>
+      </button></div>`;
 }
 
 function podpowiedzLimitu() {
@@ -582,8 +586,9 @@ export function renderDodaj(trasa = null, id = null) {
         <legend>${f.typ === 'wpływ' ? 'Źródło przychodu' : 'Kategoria'}</legend>
         ${f.podzial ? htmlPodzialu() : `
           ${siatkaKategorii()}
-          ${pod.length ? `<div class="chipy male podkategorie" role="group" aria-label="Podkategoria">${pod.map(p => `
-            <button type="button" class="chip" data-akcja="podkategoria" data-v="${esc(p.nazwa)}" aria-pressed="${p.nazwa === f.podkategoria}">${esc(p.nazwa)}</button>`).join('')}</div>` : ''}
+          ${f.kategoria ? `<div class="chipy male podkategorie" role="group" aria-label="Podkategoria">${pod.map(p => `
+            <button type="button" class="chip" data-akcja="podkategoria" data-v="${esc(p.nazwa)}" aria-pressed="${p.nazwa === f.podkategoria}">${esc(p.nazwa)}</button>`).join('')}
+            <button type="button" class="chip chip-nowy" data-akcja="nowa-podkategoria">＋ podkategoria</button></div>` : ''}
           ${!plan ? `<button type="button" class="link" data-akcja="podziel">Podziel na kilka kategorii</button>` : ''}`}
         ${podpowiedzLimitu()}
       </fieldset>`}
@@ -683,6 +688,13 @@ export function obsluzKlik(e) {
       f.kategoria = v; f.podpowiedz = '';
       break;
     case 'podkategoria': f.podkategoria = f.podkategoria === v ? '' : v; break;
+    case 'nowa-kategoria':
+    case 'nowa-podkategoria':
+      nowaKategoria(f.typ === 'wpływ' ? 'wpływ' : 'wydatek', akcja === 'nowa-podkategoria' ? f.kategoria : '').then(r => {
+        if (r && !f.podzial) { f.kategoria = r.kategoria; f.podkategoria = r.podkategoria; f.podpowiedz = ''; }
+        przerysuj();
+      });
+      return;
     case 'podmiot': f.podmiot = v; break;
     case 'przypisz': {
       const b = dane.budzety.find(x => x.id === v);

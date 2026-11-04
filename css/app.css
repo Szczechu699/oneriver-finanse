@@ -882,3 +882,12 @@ a.wiersz-rozl:hover { background: var(--papier-2); }
   .wiersz-rozl.propozycja .akcja-rozl { grid-column: 1 / -1; justify-content: flex-end; }
 }
 .korekta-salda dd.plus { color: var(--wplyw); font-weight: 700; } .korekta-salda dd.minus { color: var(--wydatek); font-weight: 700; }
+
+.podmiot-importu { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 10px 14px; margin-bottom: 12px; border-radius: var(--r); border: 1px solid var(--linia); background: var(--papier); }
+.podmiot-importu.brak { border-color: var(--kukurydza); background: color-mix(in srgb, var(--kukurydza) 14%, var(--papier)); }
+.podmiot-importu label { display: flex; align-items: center; gap: 8px; }
+.podmiot-importu .etykieta { margin: 0; }
+.podmiot-importu select { width: auto; min-height: 40px; }
+.podmiot-importu .podpowiedz { margin: 0; }
+.kafel-nowy { border-style: dashed !important; background: transparent !important; }
+.chip-nowy { border-style: dashed; }

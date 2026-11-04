@@ -10,6 +10,7 @@ import {
 } from './dane.js';
 import * as sync from './sync.js';
 import { ikonaSvg } from './ikony.js';
+import { nowaKategoria } from './kategorie.js';
 
 const WPLYWOWE = new Set(['wpływ', 'przeksięgowanie-wpływ', 'pożyczka-otrzymana', 'spłata-otrzymana']);
 
@@ -454,7 +455,7 @@ function przygotuj(plikNazwa, p, konto) {
     w.jednostka = j;
     uzyte.add(j.id);
   });
-  Object.assign(imp, { plikNazwa, p, konto, wiersze, jednostki });
+  Object.assign(imp, { plikNazwa, p, konto, wiersze, jednostki, domyslnyPodmiot: podmiotKonta(konto) || '' });
   widok.zaznaczone.clear();
   widok.filtr = 'wszystkie';
 }
@@ -470,7 +471,7 @@ function opcjeKategorii(w) {
     const pod = podrzedne(typ, k.nazwa);
     return `<option value="${esc(k.nazwa)}||" ${wartosc === k.nazwa + '||' ? 'selected' : ''}>${esc(k.nazwa)}</option>${pod.map(p =>
       `<option value="${esc(k.nazwa)}||${esc(p.nazwa)}" ${wartosc === `${k.nazwa}||${p.nazwa}` ? 'selected' : ''}>&nbsp;&nbsp;↳ ${esc(p.nazwa)}</option>`).join('')}`;
-  }).join('')}`;
+  }).join('')}<option value="__nowa__">＋ Nowa kategoria lub podkategoria…</option>`;
 }
 
 function htmlDecyzji(w) {
@@ -600,6 +601,13 @@ function renderPrzeglad() {
       <div class="wskaznik"><span class="etykieta-wsk">Wpływy / wydatki</span><b class="mniejsze">+${esc(kwotaTxt(wplywy, p.waluta))}<br>−${esc(kwotaTxt(-wydatki, p.waluta))}</b><span class="zmiana">${p.kontrola ? (zgodne ? '✓ zgodne z sumami banku' : '⚠ nie zgadza się z sumami banku') : ''}${p.kontrola?.koniec != null ? ` · saldo końcowe ${esc(kwotaTxt(p.kontrola.koniec, p.waluta))}` : ''}</span></div>
       <div class="wskaznik ${l.propozycja ? 'wyroznione' : ''}"><span class="etykieta-wsk">Do zatwierdzenia</span><b>${l.propozycja}</b><span class="zmiana">połączone: ${l.dopasowana}</span></div>
       <div class="wskaznik"><span class="etykieta-wsk">Nowe</span><b>${l.nowa}</b><span class="zmiana">${l['bez-kategorii']} bez kategorii · już w aplikacji: ${l.juz}</span></div>
+    </div>
+    <div class="podmiot-importu ${imp.domyslnyPodmiot ? '' : 'brak'}">
+      <label><span class="etykieta">Podmiot dla operacji z tego konta</span>
+        <select data-pole="domyslny-podmiot"><option value="">— wybierz —</option>${podmioty().map(p => `<option ${p === imp.domyslnyPodmiot ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></label>
+      <span class="podpowiedz">${imp.domyslnyPodmiot
+        ? (imp.domyslnyPodmiot === podmiotKonta(imp.konto) ? `domyślny podmiot konta ${esc(imp.konto)} – pojedyncze operacje zmienisz w wierszach` : `<button type="button" class="link" data-akcja="zapamietaj-podmiot">Ustaw „${esc(imp.domyslnyPodmiot)}” jako domyślny dla konta ${esc(imp.konto)}</button>`)
+        : `konto ${esc(imp.konto)} nie ma domyślnego podmiotu – wybierz, a ustawi się we wszystkich nowych operacjach`}</span>
     </div>
     <div class="pasek-filtrow">
       <div class="chipy male" role="group" aria-label="Pokaż">${FILTRY.map(([v, e]) =>
@@ -803,6 +811,15 @@ async function klik(e) {
       zapamietajRachunek(v).catch(() => {});
       break;
     case 'filtr': widok.filtr = v; break;
+    case 'zapamietaj-podmiot': {
+      const wiersz_ = dane.slownik.find(x => x.lista === 'konta' && x.nazwa === imp.konto);
+      if (wiersz_) {
+        await sync.zapisz('SLOWNIK', [{ ...wiersz_, atrybuty: JSON.stringify({ ...atrybuty(wiersz_), podmiot: imp.domyslnyPodmiot }) }]);
+        await wczytajDane();
+        toast(`Konto ${imp.konto} ma teraz domyślny podmiot ${imp.domyslnyPodmiot}.`, 'ok');
+      }
+      break;
+    }
     case 'zatwierdz': wiersz(i).stan = 'dopasowana'; break;
     case 'zatwierdz-wszystkie': imp.wiersze.forEach(w => { if (w.stan === 'propozycja') w.stan = 'dopasowana'; }); break;
     case 'odrzuc': {
@@ -822,8 +839,24 @@ async function klik(e) {
   przerysuj();
 }
 
-function zmiana(e) {
+async function zmiana(e) {
   const el = e.target;
+  // „+ Nowa kategoria…” w liście kategorii – okno, potem nowa kategoria od razu wybrana
+  if (el.value === '__nowa__' && el.dataset.pole) {
+    const pole = el.dataset.pole;
+    const typ = pole === 'm-kategoria-wplyw' || (pole === 'kategoria' && wiersz(el.dataset.i).typ === 'wpływ') ? 'wpływ' : 'wydatek';
+    const r = await nowaKategoria(typ);
+    if (!r) { przerysuj(); return; }
+    if (pole === 'kategoria') { const w = wiersz(el.dataset.i); w.kategoria = r.kategoria; w.podkategoria = r.podkategoria; w.podpowiedz = ''; }
+    else {
+      widok.zaznaczone.forEach(n => {
+        const w = wiersz(n);
+        if (w.stan === 'nowa' && w.typ !== 'przeks' && (pole === 'm-kategoria-wplyw') === (w.typ === 'wpływ')) { w.kategoria = r.kategoria; w.podkategoria = r.podkategoria; w.podpowiedz = ''; }
+      });
+    }
+    przerysuj();
+    return;
+  }
   if (el.name === 'plik-importu' && el.files?.[0]) { wczytajPlik(el.files[0]); return; }
   const pole = el.dataset.pole;
   if (!pole || !imp) return;
@@ -833,7 +866,7 @@ function zmiana(e) {
     widok.zaznaczone.forEach(n => {
       const w = wiersz(n);
       if (w.stan !== 'nowa') return;
-      if (pole === 'm-podmiot') w.podmiot = v;
+      if (pole === 'm-podmiot') { w.podmiot = v; w.podmiotRecznie = true; }
       else if ((pole === 'm-kategoria-wplyw') === (w.typ === 'wpływ') && w.typ !== 'przeks') {
         [w.kategoria, w.podkategoria] = v.split('||'); w.podpowiedz = '';
       }
@@ -841,10 +874,16 @@ function zmiana(e) {
     przerysuj();
     return;
   }
+  if (pole === 'domyslny-podmiot') {
+    imp.domyslnyPodmiot = el.value;
+    imp.wiersze.forEach(w => { if (w.stan === 'nowa' && !w.podmiotRecznie) w.podmiot = el.value; });
+    przerysuj();
+    return;
+  }
   const w = wiersz(el.dataset.i);
   if (pole === 'typ') { w.typ = el.value; if (w.typ !== 'przeks') { w.kategoria = ''; w.podkategoria = ''; } }
   else if (pole === 'kategoria') { [w.kategoria, w.podkategoria = ''] = el.value.split('||'); w.podpowiedz = ''; }
-  else if (pole === 'podmiot') w.podmiot = el.value;
+  else if (pole === 'podmiot') { w.podmiot = el.value; w.podmiotRecznie = true; }
   else if (pole === 'konto2') w.konto2 = el.value;
   else if (pole === 'inny' && el.value) {
     if (w.stan === 'propozycja' || w.stan === 'dopasowana') { w.stan = 'propozycja'; }
