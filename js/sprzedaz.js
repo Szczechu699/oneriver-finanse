@@ -7,6 +7,7 @@ import * as sync from './sync.js';
 import { wersjaApi } from './api.js';
 import { przedzialy } from './podsumowanie.js';
 import { ikonaSvg } from './ikony.js';
+import { sprzedazBezParagonu } from './rozliczenia.js';
 
 const PODMIOTY_SGT = ['INCO', 'OFI'];
 const OKRESY = [['ten-miesiac', 'Ten miesiąc'], ['poprzedni', 'Poprzedni miesiąc'], ['kwartal', 'Ten kwartał'], ['rok', 'Ten rok'], ['12m', 'Ostatnie 12 miesięcy'], ['wlasny', 'Własny']];
@@ -190,8 +191,14 @@ function renderRaport() {
   const dokPop = dokumentyOkresu(pop.od, pop.do);
   const klucze = new Set(dok.map(kluczDok));
   const poz = dane.sprzedazPoz.filter(p => klucze.has(`${p.podmiot}|${p.dok_id}`));
-  const suma = zaokr(dok.reduce((a, d) => a + num(d.brutto), 0));
-  const sumaPop = zaokr(dokPop.reduce((a, d) => a + num(d.brutto), 0));
+  // sprzedaż bez paragonu: wpływy oznaczone w Rozliczeniach (tylko gdy nie filtrujesz magazynu ani formy płatności)
+  const bezPar = (a, b) => (stan.magazyny.size || stan.formy.size ? [] : sprzedazBezParagonu(a, b)
+    .filter(x => !stan.podmioty.size || stan.podmioty.has(x.t.podmiot)));
+  const bez = bezPar(od, do_);
+  const sumaBez = zaokr(bez.reduce((a, x) => a + x.kwota, 0));
+  const sumaParagony = zaokr(dok.reduce((a, d) => a + num(d.brutto), 0));
+  const suma = zaokr(sumaParagony + sumaBez);
+  const sumaPop = zaokr(dokPop.reduce((a, d) => a + num(d.brutto), 0) + bezPar(pop.od, pop.do).reduce((a, x) => a + x.kwota, 0));
   const bezgotowkowe = zaokr(dok.reduce((a, d) => a + num(d.kw_karta) + num(d.kw_przelew) + num(d.kw_kredyt), 0));
   const nFiltrow = stan.podmioty.size + stan.magazyny.size + stan.formy.size;
 
@@ -235,9 +242,9 @@ function renderRaport() {
     ${stan.panel ? panelFiltrow() : ''}
 
     <div class="kafle-wskaznikow">
-      <div class="wskaznik wyroznione"><span class="etykieta-wsk"><i class="znak seria-wplywy"></i>Sprzedaż brutto</span><b>${esc(kwotaTxt(suma))}</b><span class="zmiana">${esc(zmiana(suma, sumaPop))}</span></div>
+      <div class="wskaznik wyroznione"><span class="etykieta-wsk"><i class="znak seria-wplywy"></i>Sprzedaż brutto</span><b>${esc(kwotaTxt(suma))}</b><span class="zmiana">${sumaBez ? `paragony ${esc(kwotaTxt(sumaParagony))} + bez paragonu ${esc(kwotaTxt(sumaBez))} · ` : ''}${esc(zmiana(suma, sumaPop))}</span></div>
       <div class="wskaznik"><span class="etykieta-wsk">Paragony</span><b>${dok.length}</b><span class="zmiana">poprzednio ${dokPop.length}</span></div>
-      <div class="wskaznik"><span class="etykieta-wsk">Średni paragon</span><b>${esc(kwotaTxt(dok.length ? zaokr(suma / dok.length) : 0))}</b><span class="zmiana">${poz.length} ${odmiana(poz.length, 'pozycja', 'pozycje', 'pozycji')}</span></div>
+      <div class="wskaznik"><span class="etykieta-wsk">Średni paragon</span><b>${esc(kwotaTxt(dok.length ? zaokr(sumaParagony / dok.length) : 0))}</b><span class="zmiana">${poz.length} ${odmiana(poz.length, 'pozycja', 'pozycje', 'pozycji')}</span></div>
       <div class="wskaznik"><span class="etykieta-wsk">Karta, przelew, kredyt</span><b>${esc(kwotaTxt(bezgotowkowe))}</b><span class="zmiana">do sprawdzenia z wyciągami</span></div>
     </div>
     <p class="uwagi-podsumowania">Paragony z Subiektu GT${nFiltrow ? ', według filtrów' : ''}. Porównanie ${pop.doDzis ? 'do dziś ' : ''}z okresem ${esc(opisZakresu(pop.od, pop.do))}.${ostatnieWklejenie ? ` Ostatnio wklejono ${esc(dataKrotko(ostatnieWklejenie.slice(0, 10)))}.` : ''}</p>
@@ -252,6 +259,8 @@ function renderRaport() {
         </details>
       </article>
       <article class="panel"><header><h2>Według magazynu</h2></header>${ranking(sumuj(dok, d => [[d.magazyn || '(bez magazynu)', num(d.brutto)]]))}</article>
+      ${bez.length ? `<article class="panel"><header><h2>Sprzedaż bez paragonu</h2><span class="podtytul">z wpływów oznaczonych w Rozliczeniach</span></header>${ranking(sumuj(bez, x => [[x.zrodlo || 'Sprzedaż bez paragonu', x.kwota]]))}
+        <details class="tabela-wykresu"><summary>Pokaż wpływy (${bez.length})</summary><table class="tabela"><tbody>${bez.map(x => `<tr><td>${esc(dataKrotko(x.t.data_operacji))}</td><td><a href="#rozliczenie/${encodeURIComponent(x.t.id)}">${esc(x.t.kontrahent || '')}</a></td><td>${esc(x.t.podmiot || '')}</td><td class="liczba">${esc(kwotaTxt(x.kwota))}</td></tr>`).join('')}</tbody></table></details></article>` : ''}
       <article class="panel"><header><h2>Według formy płatności</h2></header>${ranking(sumuj(dok, platnosci))}</article>
       ${stan.podmioty.size === 1 ? '' : `<article class="panel"><header><h2>Według podmiotu</h2></header>${ranking(sumuj(dok, d => [[d.podmiot, num(d.brutto)]]))}</article>`}
       <article class="panel"><header><h2>Według grupy towarów</h2></header>${ranking(sumuj(poz, p => [[p.grupa || 'Podstawowa', num(p.brutto)]]).slice(0, 10))}</article>

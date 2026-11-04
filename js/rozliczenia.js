@@ -13,7 +13,23 @@ export const kluczParagonu = d => `${d.podmiot}|${d.dok_id}`;
 const aktywne = () => dane.rozliczenia.filter(r => r.status !== 'anulowane');
 /** Różnica groszowa (np. paragon 292,02 zł, przelew 292,00 zł) nie zostawia paragonu „otwartego”. */
 const GROSZE = 0.1;
-const POWODY = ['Nie jest sprzedażą (zwrot, pożyczka, darowizna)', 'Zaliczka lub przedpłata', 'Sprzedaż bez paragonu', 'Inne'];
+export const SPRZEDAZ_BEZ = 'Sprzedaż bez paragonu';
+const POWODY = [SPRZEDAZ_BEZ, 'Nie jest sprzedażą (zwrot, pożyczka, darowizna)', 'Zaliczka lub przedpłata', 'Inne'];
+/** Źródła przychodu, które oznaczają sprzedaż (do wyboru przy „sprzedaży bez paragonu”). */
+const zrodlaSprzedazy = () => {
+  const l = glowne('wpływ').map(k => k.nazwa);
+  const sprzedazowe = l.filter(n => /sklep|stois|kiermasz|sprzeda/i.test(n));
+  return sprzedazowe.length ? [...sprzedazowe, ...l.filter(n => !sprzedazowe.includes(n))] : l;
+};
+
+/** Sprzedaż bez paragonu (wpływy oznaczone jako sprzedaż) w okresie – do raportu sprzedaży. */
+export function sprzedazBezParagonu(od, do_) {
+  return aktywne().filter(r => r.obiekt_typ === 'sprzedaz-bez-paragonu').map(r => {
+    const t = dane.transakcje.find(x => x.id === r.transakcja_id);
+    if (!t || t.status === 'anulowana' || t.data_operacji < od || t.data_operacji > do_) return null;
+    return { r, t, kwota: num(r.kwota_pln) || num(r.kwota), zrodlo: r.uwagi || '' };
+  }).filter(Boolean);
+}
 
 export function rozliczonoTransakcji(id) {
   return zaokr(aktywne().filter(r => r.transakcja_id === id).reduce((s, r) => s + num(r.kwota), 0));
@@ -143,12 +159,44 @@ async function cofnij(idRozl) {
   await wczytajDane();
 }
 
-async function bezParagonu(t, powod) {
+/**
+ * Reszta wpływu bez paragonu. „Sprzedaż bez paragonu” liczy się w raporcie sprzedaży, a wpływ dostaje
+ * wybrane źródło przychodu (gdy część była już rozliczona paragonami – reszta wydziela się jako osobna część).
+ */
+function wierszeBezParagonu(t, powod, zrodlo) {
   const reszta = zostaloWplywu(t);
-  if (!(reszta > 0)) return;
-  await sync.zapisz('ROZLICZENIA', [wierszRozliczenia(t, reszta, { obiekt_typ: 'bez-paragonu', obiekt_id: '', sposob: 'ręcznie', uwagi: powod })]);
+  if (!(reszta > 0)) return null;
+  const sprzedaz = powod === SPRZEDAZ_BEZ;
+  const obiekt = { obiekt_typ: sprzedaz ? 'sprzedaz-bez-paragonu' : 'bez-paragonu', obiekt_id: '', sposob: 'ręcznie', uwagi: sprzedaz ? (zrodlo || SPRZEDAZ_BEZ) : powod };
+  if (!sprzedaz || !zrodlo) return { transakcje: [], rozliczenia: [wierszRozliczenia(t, reszta, obiekt)] };
+  const rozl = rozliczonoTransakcji(t.id);
+  if (!(rozl > 0)) {
+    const tt = t.zrodlo_przychodu === zrodlo ? [] : [{ ...t, zrodlo_przychodu: zrodlo }];
+    return { transakcje: tt, rozliczenia: [wierszRozliczenia(t, reszta, obiekt)] };
+  }
+  const podzialId = t.podzial_id || uuid();
+  const kurs = Number(t.kurs) || ((t.waluta || 'PLN') === 'PLN' ? 1 : 0);
+  const pln = v => (kurs ? zaokr(v * kurs) : '');
+  const czesc = { ...t, id: uuid(), kwota: reszta, kwota_pln: pln(reszta), podzial_id: podzialId, zrodlo_przychodu: zrodlo };
+  return {
+    transakcje: [{ ...t, kwota: rozl, kwota_pln: pln(rozl), podzial_id: podzialId }, czesc],
+    rozliczenia: [wierszRozliczenia(czesc, reszta, obiekt)],
+  };
+}
+
+async function bezParagonu(lista_, powod, zrodlo) {
+  const transakcje = [], rozliczenia = [];
+  let suma = 0;
+  lista_.forEach(t => {
+    const w = wierszeBezParagonu(t, powod, zrodlo);
+    if (!w) return;
+    transakcje.push(...w.transakcje); rozliczenia.push(...w.rozliczenia);
+    suma += w.rozliczenia.reduce((s, r) => s + num(r.kwota_pln || r.kwota), 0);
+  });
+  if (!rozliczenia.length) return;
+  await sync.zapiszWiele([{ karta: 'TRANSAKCJE', wiersze: transakcje }, { karta: 'ROZLICZENIA', wiersze: rozliczenia }]);
   await wczytajDane();
-  toast(`${kwotaTxt(reszta, t.waluta)} oznaczone jako bez paragonu.`, 'ok');
+  toast(`${rozliczenia.length} ${odmiana(rozliczenia.length, 'wpływ', 'wpływy', 'wpływów')} (${kwotaTxt(zaokr(suma))}) oznaczone: ${powod === SPRZEDAZ_BEZ ? `sprzedaż bez paragonu${zrodlo ? ` – ${zrodlo}` : ''}` : powod}.`, 'ok', 6000);
 }
 
 /** Pozostałą część wpływu wydziela jako osobną część z innym źródłem przychodu – jak podział transakcji. */
@@ -172,11 +220,19 @@ async function wydzielReszte(t, wybor) {
 
 // ───────────────────────── widoki ─────────────────────────
 
-const stan = { filtr: 'wszystko', szukaj: '', gotowkowe: false, biezacy: null, auto: null };
+const stan = { filtr: 'wszystko', szukaj: '', gotowkowe: false, biezacy: null, auto: null, zazn: new Set(), powod: SPRZEDAZ_BEZ, zrodlo: '' };
+
+function htmlPowodu(nazwaPrzycisku, akcja, v = '') {
+  const zrodla = zrodlaSprzedazy();
+  if (!stan.zrodlo || !zrodla.includes(stan.zrodlo)) stan.zrodlo = zrodla[0] || '';
+  return `<select name="powod" aria-label="Powód">${POWODY.map(p => `<option ${p === stan.powod ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select>
+    ${stan.powod === SPRZEDAZ_BEZ ? `<select name="zrodlo-sprzedazy" aria-label="Źródło przychodu">${zrodla.map(z => `<option ${z === stan.zrodlo ? 'selected' : ''}>${esc(z)}</option>`).join('')}</select>` : ''}
+    <button type="button" class="przycisk-maly" data-akcja="${akcja}" data-v="${esc(v)}">${esc(nazwaPrzycisku)}</button>`;
+}
 
 function wierszWplywu(t) {
   const rozl = rozliczonoTransakcji(t.id);
-  return `<li><a class="wiersz-rozl" href="#rozliczenie/${encodeURIComponent(t.id)}">
+  return `<li class="z-wyborem"><label class="wybor-rozl"><input type="checkbox" data-akcja="zazn" data-v="${esc(t.id)}" ${stan.zazn.has(t.id) ? 'checked' : ''} aria-label="Zaznacz"></label><a class="wiersz-rozl" href="#rozliczenie/${encodeURIComponent(t.id)}">
     <span class="data-rozl">${esc(dataKrotko(t.data_operacji))}</span>
     <span class="opis-rozl"><b><span class="rodzaj-rozl wplyw">wpływ</span> ${esc(t.kontrahent || 'Wpływ')}</b>
       <span><span class="etykieta-konta" style="--k:${esc(kolorKonta(t.konto))}">${esc(t.konto)}</span> ${esc(t.opis && t.opis !== t.kontrahent ? t.opis : '')}</span></span>
@@ -199,8 +255,10 @@ function wierszParagonu(d) {
 const pasujeSzukaj = (...pola) => !stan.szukaj || pola.join(' ').toLowerCase().includes(stan.szukaj.toLowerCase());
 
 function renderLista() {
-  const wplywy = otwarteWplywy().filter(t => pasujeSzukaj(t.kontrahent, t.opis, t.kwota, t.konto));
+  const wplywy = otwarteWplywy().filter(t => pasujeSzukaj(t.kontrahent, t.opis, t.kwota, t.konto, t.data_operacji));
   const paragonyWszystkie = otwarteParagony().filter(d => !gotowkowy(d) || stan.gotowkowe || rozliczonoParagonu(kluczParagonu(d)) > 0);
+  // rozliczone ponad wartość (np. paragon zmniejszony w Subiekcie po rozliczeniu) – do poprawy
+  const nadplacone = dane.sprzedaz.filter(d => rozliczonoParagonu(kluczParagonu(d)) > 0 && zostaloParagonu(d) < -GROSZE);
   const paragony = paragonyWszystkie.filter(d => pasujeSzukaj(d.numer, d.kontrahent, d.brutto, d.magazyn));
   const sumaW = zaokr(otwarteWplywy().reduce((s, t) => s + zostaloWplywu(t), 0));
   const bezgot = otwarteParagony().filter(d => !gotowkowy(d));
@@ -224,16 +282,23 @@ function renderLista() {
       <a class="przycisk-maly" href="#rozliczenia/auto">Przejrzyj i rozlicz</a></div>` : ''}
     <div class="pasek-filtrow">
       <div class="chipy male">${filtry.map(([v, e]) => `<button type="button" class="chip" data-akcja="filtr" data-v="${v}" aria-pressed="${stan.filtr === v}">${esc(e)}</button>`).join('')}</div>
-      <input type="search" name="szukaj-rozl" placeholder="Szukaj: nazwisko, numer, kwota" value="${esc(stan.szukaj)}" class="szukaj-rozl">
+      <input type="search" name="szukaj-rozl" placeholder="Szukaj: nazwisko, numer, kwota, data (np. 2026-09)" value="${esc(stan.szukaj)}" class="szukaj-rozl">
     </div>
+    ${nadplacone.length && stan.filtr !== 'rozliczone' ? `<div class="pasek-edycji"><span>Rozliczono więcej niż wartość paragonu (${nadplacone.length}) – pewnie paragon zmieniono w Subiekcie: ${nadplacone.map(d => `<a href="#rozliczenie/p:${encodeURIComponent(kluczParagonu(d))}">${esc(d.numer)} (${esc(d.podmiot)}) ${esc(kwotaTxt(-zostaloParagonu(d)))} za dużo</a>`).join(', ')}. Cofnij tam rozliczenie i rozlicz jeszcze raz.</span></div>` : ''}
+    ${stan.zazn.size && stan.filtr !== 'rozliczone' ? `<div class="pasek-masowy">
+      <span><b>${stan.zazn.size}</b> ${odmiana(stan.zazn.size, 'wpływ', 'wpływy', 'wpływów')} · ${esc(kwotaTxt(zaokr([...stan.zazn].reduce((s, id) => s + zostaloWplywu(dane.transakcje.find(t => t.id === id) || { kwota: 0, id }), 0))))}</span>
+      ${htmlPowodu('Oznacz zaznaczone', 'masowo-bez')}
+      <button type="button" class="przycisk-maly drugorzedny" data-akcja="odznacz">Odznacz</button>
+    </div>` : ''}
     ${stan.filtr !== 'rozliczone' ? `
+      ${stan.filtr !== 'paragony' && wplywy.length ? `<label class="przelacznik male-przel"><input type="checkbox" data-akcja="zazn-wszystkie" ${wplywy.length && wplywy.every(t => stan.zazn.has(t.id)) ? 'checked' : ''}> zaznacz wszystkie widoczne wpływy (np. sprzed wprowadzenia paragonów – wpisz okres w wyszukiwarce)</label>` : ''}
       <label class="przelacznik male-przel"><input type="checkbox" name="gotowkowe" ${stan.gotowkowe ? 'checked' : ''}> Pokaż też paragony gotówkowe (sklep internetowy bywa w Subiekcie oznaczony jako gotówka)</label>
       <ul class="lista-rozl">${elementy.map(e => e.html).join('') || '<li class="pusto">Nic do rozliczenia.</li>'}</ul>` : `
       <ul class="lista-rozl">${rozliczone.map(r => {
         const t = dane.transakcje.find(x => x.id === r.transakcja_id);
         return `<li class="wiersz-rozl">
           <span class="data-rozl">${esc(dataKrotko(String(r.data).slice(0, 10)))}</span>
-          <span class="opis-rozl"><b>${r.obiekt_typ === 'paragon' ? esc(r.uwagi || r.obiekt_id) : `bez paragonu: ${esc(r.uwagi || '')}`}</b>
+          <span class="opis-rozl"><b>${r.obiekt_typ === 'paragon' ? esc(r.uwagi || r.obiekt_id) : r.obiekt_typ === 'sprzedaz-bez-paragonu' ? `sprzedaż bez paragonu: ${esc(r.uwagi || '')}` : `bez paragonu: ${esc(r.uwagi || '')}`}</b>
             <span>${t ? `<a href="#rozliczenie/${encodeURIComponent(t.id)}">${esc(t.kontrahent || 'wpływ')} · ${esc(dataKrotko(t.data_operacji))}</a>` : 'wpływ niedostępny'}${r.sposob === 'automatycznie' ? ' · automatycznie' : ''}</span></span>
           <span class="kwoty-rozl"><b>${esc(kwotaTxt(num(r.kwota), r.waluta))}</b><button type="button" class="przycisk-maly drugorzedny" data-akcja="cofnij-rozl" data-v="${esc(r.id)}">Cofnij</button></span>
         </li>`;
@@ -291,14 +356,14 @@ function renderWplyw(id) {
         <div><dt>Zostało</dt><dd><b class="${zostalo > 0 ? 'do-rozl' : 'plus'}">${esc(kwotaTxt(zostalo, t.waluta))}</b></dd></div>
       </dl>
       ${htmlPowiazanych(rozl, r => {
+        if (r.obiekt_typ === 'sprzedaz-bez-paragonu') return `sprzedaż bez paragonu: ${esc(r.uwagi || '')}`;
         if (r.obiekt_typ !== 'paragon') return `bez paragonu: ${esc(r.uwagi || '')}`;
         const d = dane.sprzedaz.find(x => kluczParagonu(x) === r.obiekt_id);
         return d ? `<a href="#rozliczenie/p:${encodeURIComponent(r.obiekt_id)}">${esc(d.numer)}</a> <span class="znacznik">${esc(d.podmiot)}</span> ${esc(d.kontrahent || '')} ${esc(dataKrotko(d.data))}` : esc(r.uwagi || r.obiekt_id);
       })}
       ${zostalo > 0.004 ? `<div class="reszta-rozl">
-        <span>${rozl.length ? 'Pozostałe' : 'Cały wpływ'} <b>${esc(kwotaTxt(zostalo, t.waluta))}</b> nie dotyczy paragonu?</span>
-        <select name="powod">${POWODY.map(p => `<option>${esc(p)}</option>`).join('')}</select>
-        <button type="button" class="przycisk-maly drugorzedny" data-akcja="bez-paragonu" data-v="${esc(t.id)}">Oznacz jako bez paragonu</button>
+        <span>${rozl.length ? 'Pozostałe' : 'Cały wpływ'} <b>${esc(kwotaTxt(zostalo, t.waluta))}</b> bez paragonu:</span>
+        ${htmlPowodu('Zapisz', 'bez-paragonu', t.id)}
         ${rozl.some(r => r.obiekt_typ === 'paragon') ? `<span class="podpowiedz">albo wydziel jako osobną część:</span>
           <select name="reszta-kat"><option value="">— źródło przychodu —</option>${glowne('wpływ').map(k => `<option>${esc(k.nazwa)}</option>`).join('')}</select>
           <button type="button" class="przycisk-maly drugorzedny" data-akcja="wydziel" data-v="${esc(t.id)}">Wydziel</button>` : ''}
@@ -357,6 +422,7 @@ function renderParagon(klucz) {
 }
 
 function render(arg) {
+  if ((arg || null) !== stan.biezacy && (arg || stan.biezacy)) stan.szukaj = '';   // wyszukiwanie dotyczy jednego ekranu
   stan.biezacy = arg || null;
   if (arg !== 'auto') stan.auto = null;
   if (!arg) renderLista();
@@ -402,7 +468,25 @@ async function klik(e) {
     return;
   }
   if (akcja === 'bez-paragonu') {
-    await bezParagonu(dane.transakcje.find(x => x.id === v), $('select[name="powod"]').value);
+    await bezParagonu([dane.transakcje.find(x => x.id === v)].filter(Boolean), stan.powod, stan.zrodlo);
+    bezSkoku(rysujBiezacy);
+    return;
+  }
+  if (akcja === 'zazn') { if (b.checked) stan.zazn.add(v); else stan.zazn.delete(v); bezSkoku(rysujBiezacy); return; }
+  if (akcja === 'zazn-wszystkie') {
+    const widoczne = otwarteWplywy().filter(t => pasujeSzukaj(t.kontrahent, t.opis, t.kwota, t.konto, t.data_operacji));
+    if (b.checked) widoczne.forEach(t => stan.zazn.add(t.id)); else widoczne.forEach(t => stan.zazn.delete(t.id));
+    bezSkoku(rysujBiezacy); return;
+  }
+  if (akcja === 'odznacz') { stan.zazn.clear(); bezSkoku(rysujBiezacy); return; }
+  if (akcja === 'masowo-bez') {
+    const lista_ = [...stan.zazn].map(id => dane.transakcje.find(t => t.id === id)).filter(Boolean);
+    const tak = await okno('Oznaczyć zaznaczone wpływy?', `<p>${lista_.length} ${odmiana(lista_.length, 'wpływ', 'wpływy', 'wpływów')} zostanie oznaczonych: <b>${esc(stan.powod === SPRZEDAZ_BEZ ? `sprzedaż bez paragonu – ${stan.zrodlo}` : stan.powod)}</b>. Każde oznaczenie można potem cofnąć.</p>`,
+      [{ etykieta: 'Nie', wartosc: false, klasa: 'drugorzedny' }, { etykieta: 'Oznacz', wartosc: true, autofocus: true }]);
+    if (!tak) return;
+    b.disabled = true;
+    await bezParagonu(lista_, stan.powod, stan.zrodlo);
+    stan.zazn.clear();
     bezSkoku(rysujBiezacy);
     return;
   }
@@ -416,6 +500,8 @@ async function klik(e) {
 
 function zmiana(e) {
   if (e.target.name === 'gotowkowe') { stan.gotowkowe = e.target.checked; bezSkoku(rysujBiezacy); }
+  else if (e.target.name === 'powod') { stan.powod = e.target.value; bezSkoku(rysujBiezacy); }
+  else if (e.target.name === 'zrodlo-sprzedazy') stan.zrodlo = e.target.value;
 }
 
 let zegar = null;
