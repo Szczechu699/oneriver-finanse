@@ -14,6 +14,7 @@ export const KLUCZE = {
   POZYCZKI: r => String(r.id),
   SPRZEDAZ_SGT: r => `${r.podmiot}|${r.dok_id}`,
   SPRZEDAZ_SGT_POZ: r => `${r.podmiot}|${r.ob_id}`,
+  IMPORTY: r => String(r.partia),
 };
 let kartyPobierane = Object.keys(KLUCZE);
 

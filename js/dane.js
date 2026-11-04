@@ -4,11 +4,11 @@ import * as db from './db.js';
 import * as sync from './sync.js';
 import { dataLok, dodajDni, przesunDate, roznicaDni, zaokr } from './util.js';
 
-export const dane = { slownik: [], transakcje: [], planowane: [], budzety: [], pozyczki: [], sprzedaz: [], sprzedazPoz: [] };
+export const dane = { slownik: [], transakcje: [], planowane: [], budzety: [], pozyczki: [], sprzedaz: [], sprzedazPoz: [], importy: [] };
 
 export async function wczytajDane() {
-  [dane.slownik, dane.transakcje, dane.planowane, dane.budzety, dane.pozyczki, dane.sprzedaz, dane.sprzedazPoz] = await Promise.all(
-    ['SLOWNIK', 'TRANSAKCJE', 'PLANOWANE', 'BUDZETY', 'POZYCZKI', 'SPRZEDAZ_SGT', 'SPRZEDAZ_SGT_POZ'].map(k => db.wiersze(k)));
+  [dane.slownik, dane.transakcje, dane.planowane, dane.budzety, dane.pozyczki, dane.sprzedaz, dane.sprzedazPoz, dane.importy] = await Promise.all(
+    ['SLOWNIK', 'TRANSAKCJE', 'PLANOWANE', 'BUDZETY', 'POZYCZKI', 'SPRZEDAZ_SGT', 'SPRZEDAZ_SGT_POZ', 'IMPORTY'].map(k => db.wiersze(k)));
 }
 
 // ── Słownik ──

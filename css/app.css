@@ -802,3 +802,43 @@ kbd { font: 600 12.5px ui-monospace, Menlo, Consolas, monospace; padding: 1px 6p
 .dzien-dziennika h2 { font-size: 15px; color: var(--szary); margin: 22px 4px 8px; font-weight: 700; }
 .dzien-dziennika h2::first-letter { text-transform: uppercase; }
 .obiekt-wpisu a { color: inherit; text-decoration: underline; text-decoration-color: var(--linia); text-underline-offset: 3px; }
+
+/* ───────── wersja 0.8: import wyciągów ───────── */
+.import-ekran { max-width: 1100px; margin: 0 auto; padding-bottom: 90px; }
+.import-ekran .naglowek-sekcji .okres-tytul { margin-right: auto; font-family: var(--font-liczby); font-size: 20px; color: var(--szary); }
+.wskaznik b.mniejsze { font-size: clamp(16px, 1.8vw, 20px); }
+.licznik-chipa { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; margin-left: 4px; border-radius: 999px; background: var(--papier-2); font-size: 12px; font-weight: 700; }
+.chip[aria-pressed="true"] .licznik-chipa { background: rgb(255 255 255 / .25); }
+.pasek-masowy { position: sticky; top: 8px; z-index: 3; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 12px; margin-bottom: 10px; border-radius: var(--r); background: var(--atrament); color: var(--mgla); }
+.pasek-masowy select { width: auto; min-height: 38px; max-width: 220px; }
+.pasek-masowy .drugorzedny { color: var(--mgla) !important; border-color: rgb(255 255 255 / .35) !important; }
+.naglowek-listy-importu { display: flex; justify-content: space-between; align-items: center; padding: 4px 6px 8px; font-size: 14px; color: var(--szary); }
+.naglowek-listy-importu label { display: flex; align-items: center; gap: 8px; }
+.lista-importu { list-style: none; margin: 0; padding: 0; background: var(--papier); border: 1px solid var(--linia); border-radius: var(--r-duzy); }
+.wiersz-importu { display: grid; grid-template-columns: 34px 1fr; gap: 6px; padding: 12px 12px 12px 8px; border-bottom: 1px solid var(--linia); }
+.wiersz-importu:last-child { border-bottom: 0; }
+.wiersz-importu .wybor { display: grid; place-items: start center; padding-top: 3px; }
+.wiersz-importu input[type=checkbox], .naglowek-listy-importu input[type=checkbox] { width: 20px; height: 20px; }
+.wiersz-importu.stan-juz, .wiersz-importu.stan-pomin { opacity: .62; }
+.wiersz-importu.stan-propozycja { background: color-mix(in srgb, var(--kukurydza) 12%, transparent); }
+.wiersz-importu.stan-dopasowana { background: color-mix(in srgb, var(--wplyw) 8%, transparent); }
+.opis-importu { display: grid; gap: 4px; min-width: 0; }
+.gora-importu { display: grid; grid-template-columns: 54px 1fr auto; gap: 8px; align-items: baseline; }
+.gora-importu b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.data-importu { color: var(--szary); font-size: 14px; }
+.kwota-importu { font-variant-numeric: tabular-nums; font-weight: 700; white-space: nowrap; }
+.kwota-importu.plus { color: var(--wplyw); } .kwota-importu.minus { color: var(--wydatek); }
+@media (prefers-color-scheme: dark) { .kwota-importu.plus { color: #8FD39B; } .kwota-importu.minus { color: #E9A3BE; } }
+.szczegoly-importu { font-size: 13.5px; color: var(--szary); padding-left: 62px; overflow-wrap: anywhere; }
+.decyzja { padding-left: 62px; }
+.decyzja select { width: auto; min-height: 38px; max-width: 100%; font-size: 14.5px; }
+.decyzja select.brak { border-color: var(--kukurydza); }
+.nowa-z-wyciagu, .dopasowanie, .przyciski-dopasowania { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.dopasowanie > span:first-child { font-size: 14.5px; }
+.decyzja .podpowiedz { width: 100%; margin: 0; }
+.decyzja .podpowiedz.uwaga { color: #8A5A00; }
+@media (max-width: 640px) { .szczegoly-importu, .decyzja { padding-left: 0; } .gora-importu { grid-template-columns: 46px 1fr auto; } }
+.pasek-zapisu-importu { position: sticky; bottom: 0; z-index: 3; display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; margin-top: 14px; padding: 12px 14px; border-radius: var(--r); background: var(--papier); border: 1px solid var(--linia); box-shadow: 0 -6px 18px rgb(0 0 0 / .06); }
+.pasek-zapisu-importu button { min-height: 46px; padding: 8px 20px; border-radius: var(--r); border: 0; background: var(--rzeka); color: #fff; font-weight: 700; }
+.pasek-zapisu-importu button:disabled { opacity: .45; }
+@media (max-width: 760px) { .pasek-zapisu-importu { bottom: 64px; } }
