@@ -38,8 +38,8 @@ self.addEventListener('fetch', e => {
   }
 
   if (url.origin !== self.location.origin) return;
-  // aplikacja stoiska ma własny service worker – jej stron i plików nie obsługujemy
-  if (url.pathname.includes('/stoisko/')) return;
+  // aplikacja stoiska (własny service worker) i formularz zamówień dla klientów – nie obsługujemy ich stron i plików
+  if (url.pathname.includes('/stoisko/') || url.pathname.includes('/zamow/')) return;
 
   if (req.mode === 'navigate') {
     e.respondWith(caches.match('./index.html').then(z => z || fetch(req)));
