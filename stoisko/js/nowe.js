@@ -4,7 +4,7 @@
 // Produkty z katalogu (warianty, ceny klienta z poziomów, cena po rabacie), płatność także dzielona
 // (np. część gotówką, część BLIK-iem). Zapis działa bez internetu; potem SMS/WhatsApp do klienta i wiadomość do grupy.
 
-import { $, $$, esc, zaokr, kwotaTxt, iloscTxt, liczba, liczbaNaTekst, uuid, dataLok, toast, num, odmiana } from './util.js';
+import { $, $$, esc, zaokr, kwotaTxt, iloscTxt, liczba, liczbaNaTekst, uuid, dataLok, toast, num, odmiana, okno } from './util.js';
 import { dane, wczytaj, szukajProduktow, nastepnyNumer, zapamietajNumer, klientPoTelefonie, telefonE164, klient as klientId,
   produktSymbolu, cenaKlienta, opisCenKlienta, zamowienie, pozycjeZamowienia, ustawienieTekst } from './dane.js';
 import { ustawienia, gotowe } from './api.js';
@@ -161,7 +161,8 @@ function htmlWysylki() {
       <input type="file" accept="image/*" multiple data-pole="zrzuty" hidden>
       <span id="ocr-opis">${ocrTrwa ? 'Odczytuję…' : 'Wczytaj zrzuty z InPost (dane odbiorcy i szczegóły przesyłki)'}</span>
     </label>
-    <p class="podpowiedz">Dane z obrazka wpisują się w pola poniżej i w dane klienta – sprawdź je przed zapisem.</p>
+    <p class="podpowiedz">Dane z obrazka wpisują się w pola poniżej i w dane klienta – sprawdź je przed zapisem.
+      <button type="button" class="link" data-akcja="wyczysc-wysylke">Wyczyść dane wysyłki i klienta</button></p>
     <label class="pole"><span class="etykieta">Paczkomat</span>
       <input data-pole="paczkomat" autocomplete="off" autocapitalize="characters" value="${esc(s.paczkomat)}" placeholder="np. WAWR01BAPP (puste = kurier)"></label>
     <label class="pole"><span class="etykieta">Adres ${s.paczkomat ? 'paczkomatu' : 'dostawy'}</span>
@@ -216,7 +217,8 @@ export function render(arg) {
     <header class="naglowek-zam">
       <div><span class="etykieta">${edycja ? 'Edycja zamówienia' : 'Nowe zamówienie'}</span><h1 class="numer">${esc(edycja ? s.edytowane : nastepnyNumer())}</h1></div>
       ${edycja ? `<a class="kontekst" href="#zamowienie/${encodeURIComponent(s.edytowane)}">Porzuć zmiany</a>`
-        : `<a class="kontekst" href="#ustawienia" title="Zmień w Ustawieniach">${esc(kontekst || 'Ustaw wydarzenie i magazyn')}</a>`}
+        : `<span class="naglowek-akcje"><a class="kontekst" href="#ustawienia" title="Zmień w Ustawieniach">${esc(kontekst || 'Ustaw wydarzenie i magazyn')}</a>
+           <button type="button" class="drugorzedny maly" data-akcja="wyczysc-wszystko">Wyczyść zamówienie</button></span>`}
     </header>
     <div class="chipy typ-sprzedazy">
       <button type="button" class="chip" data-akcja="typ" data-typ="miejsce" aria-pressed="${s.typ === 'miejsce'}">Na miejscu</button>
@@ -483,6 +485,19 @@ async function klik(e) {
     s.platnosci = s.platnosci.filter(x => x !== p);
     if (s.platnosci.length === 1) s.platnosci[0].kwotaTxt = '';
     odswiezPlatnosci();
+  } else if (akcja === 'wyczysc-wysylke') {
+    Object.assign(s, { paczkomat: '', adres: '', nrPrzesylki: '', kodNadania: '', klientId: '', telefon: '', nazwa: '', email: '' });
+    zachowaj();
+    render();
+    toast('Wyczyszczono dane wysyłki i klienta.', 'ok', 2000);
+    return;
+  } else if (akcja === 'wyczysc-wszystko') {
+    if (!(await okno('Wyczyścić zamówienie?', '<p>Znikną produkty, dane klienta, wysyłki i płatności z tego szkicu. Zapisane zamówienia zostają bez zmian.</p>',
+      [{ etykieta: 'Zostaw', wartosc: false, klasa: 'drugorzedny', autofocus: true }, { etykieta: 'Wyczyść', wartosc: true, klasa: 'niebezpieczny' }]))) return;
+    s = { ...pusty(), typ: s.typ, realizuje: s.realizuje };
+    zachowaj();
+    render();
+    return;
   } else if (akcja === 'zatwierdz') {
     await zatwierdz(b.dataset.kanal, b);
     return;
