@@ -1,31 +1,49 @@
-// Ekran „Nowe zamówienie”: produkty z katalogu (warianty gramatur i rozmiarów), ceny klienta (grupa, rabat,
-// ceny specjalne) i ręczna cena po rabacie, dostawa, forma płatności. Zatwierdzenie zapisuje zamówienie
-// na urządzeniu (także bez internetu) i otwiera SMS albo WhatsApp z podsumowaniem.
+// Ekran „Nowe zamówienie” (#nowe) i edycja zamówienia (#edytuj/<numer>).
+// Sprzedaż na miejscu albo wysyłka InPost: zrzuty z aplikacji InPost Mobile wypełniają dane klienta, paczkomat,
+// numer przesyłki i kod nadania; transport (domyślnie 12 zł) jest osobną pozycją – trafi na paragon jako usługa.
+// Produkty z katalogu (warianty, ceny klienta z poziomów, cena po rabacie), płatność także dzielona
+// (np. część gotówką, część BLIK-iem). Zapis działa bez internetu; potem SMS/WhatsApp do klienta i wiadomość do grupy.
 
 import { $, $$, esc, zaokr, kwotaTxt, iloscTxt, liczba, liczbaNaTekst, uuid, dataLok, toast, num, odmiana } from './util.js';
 import { dane, wczytaj, szukajProduktow, nastepnyNumer, zapamietajNumer, klientPoTelefonie, telefonE164, klient as klientId,
-  produktSymbolu, cenaKlienta, opisCenKlienta, wysylkiAktywne, wysylka, kosztWysylki } from './dane.js';
+  produktSymbolu, cenaKlienta, opisCenKlienta, zamowienie, pozycjeZamowienia, ustawienieTekst } from './dane.js';
 import { ustawienia, gotowe } from './api.js';
-import { FORMY, PLATNE_POZNIEJ, STATUSY } from './konfiguracja.js';
+import { FORMY, STATUSY, OSOBY_WYSYLKI, SYMBOL_TRANSPORTU, TRANSPORT_DOMYSLNY } from './konfiguracja.js';
+import { rozpoznaj } from './inpost.js';
 import * as sync from './sync.js';
 
-const SZKIC = 'or-stoisko-szkic';
-const pusty = () => ({ koszyk: [], telefon: '', nazwa: '', email: '', forma: 'Przelew', uwagi: '', szukaj: '', grupa: '',
-  klientId: '', dostawaId: '', adres: '', kosztTxt: '' });
+const SZKIC = 'or-stoisko-szkic-2';
+const ZAPLACONE_ZAWSZE = new Set(['Gotówka', 'Karta']);
 
-let s = (() => {
-  try { return { ...pusty(), ...JSON.parse(localStorage.getItem(SZKIC)) }; } catch { return pusty(); }
-})();
+const transportDomyslny = () => {
+  const t = ustawienieTekst('transport_domyslny');
+  return t !== '' && isFinite(liczba(t)) ? liczbaNaTekst(liczba(t)) : liczbaNaTekst(TRANSPORT_DOMYSLNY);
+};
+const pusty = () => ({
+  tryb: 'nowe', edytowane: '', typ: 'miejsce', koszyk: [], klientId: '', telefon: '', nazwa: '', email: '', uwagi: '',
+  szukaj: '', grupa: '', paczkomat: '', adres: '', nrPrzesylki: '', kodNadania: '', transportTxt: '', realizuje: '',
+  platnosci: [{ k: uuid(), forma: 'Przelew', kwotaTxt: '', zaplacone: false }],
+});
+
+let s = wczytajSzkic();
 let zapisuje = false;
+let ocrTrwa = false;
 
-const zachowaj = () => { try { localStorage.setItem(SZKIC, JSON.stringify(s)); } catch { /* bez znaczenia */ } };
+function wczytajSzkic() {
+  try {
+    const z = JSON.parse(localStorage.getItem(SZKIC));
+    if (z && Array.isArray(z.koszyk)) return { ...pusty(), ...z, tryb: 'nowe', edytowane: '' };
+  } catch { /* pusto */ }
+  return pusty();
+}
+const zachowaj = () => { if (s.tryb === 'nowe') { try { localStorage.setItem(SZKIC, JSON.stringify(s)); } catch { /* bez znaczenia */ } } };
 
-// ───────────────────────── ceny ─────────────────────────
+// ───────────────────────── ceny i sumy ─────────────────────────
 
 const biezacyKlient = () => klientId(s.klientId);
 const cenaBazowa = p => (p.symbol && p.cena_cennik !== '' ? cenaKlienta(biezacyKlient(), p.symbol, num(p.cena_cennik)) : NaN);
 
-/** Cena sztuki: puste pole = cena klienta (albo z cennika); „10%” albo „-10%” = rabat procentowy od ceny z cennika. */
+/** Cena sztuki: puste pole = cena klienta (albo z cennika); „10%” = rabat procentowy od ceny z cennika. */
 function cena(p) {
   const t = String(p.cenaTxt ?? '').trim();
   const cennik = p.cena_cennik === '' ? NaN : num(p.cena_cennik);
@@ -37,13 +55,13 @@ function cena(p) {
 const ilosc = p => liczba(p.iloscTxt ?? '1');
 const wartosc = p => zaokr(cena(p) * ilosc(p));
 const sumaProduktow = () => zaokr(s.koszyk.reduce((a, p) => a + (isFinite(wartosc(p)) ? wartosc(p) : 0), 0));
-function kosztDostawy() {
-  if (!s.dostawaId) return 0;
-  const t = String(s.kosztTxt || '').trim();
-  if (t) return isFinite(liczba(t)) ? zaokr(liczba(t)) : 0;
-  return kosztWysylki(wysylka(s.dostawaId), sumaProduktow());
+function kosztTransportu() {
+  if (s.typ !== 'wysylka') return 0;
+  const t = String(s.transportTxt ?? '').trim();
+  const v = liczba(t === '' ? transportDomyslny() : t);
+  return isFinite(v) ? zaokr(v) : NaN;
 }
-const suma = () => zaokr(sumaProduktow() + kosztDostawy());
+const suma = () => zaokr(sumaProduktow() + (isFinite(kosztTransportu()) ? kosztTransportu() : 0));
 
 function opisRabatu(p) {
   const c = cena(p);
@@ -54,12 +72,20 @@ function opisRabatu(p) {
   return `rabat ${kwotaTxt(r * ilosc(p) || r)} (${Math.round((r / num(p.cena_cennik)) * 100)}%)`;
 }
 
-// ───────────────────────── widok ─────────────────────────
+/** Kwoty płatności: wiersz z pustą kwotą dostaje resztę (tylko jeden może być pusty – ostatni). */
+function kwotyPlatnosci() {
+  const razem = suma();
+  const wpisane = s.platnosci.map(p => (String(p.kwotaTxt || '').trim() === '' ? null : zaokr(liczba(p.kwotaTxt))));
+  const iPusty = wpisane.lastIndexOf(null);
+  const reszta = zaokr(razem - wpisane.reduce((a, v, i) => a + (i === iPusty || v === null ? 0 : v), 0));
+  return s.platnosci.map((p, i) => ({ ...p, kwota: i === iPusty ? reszta : (wpisane[i] ?? 0), auto: i === iPusty }));
+}
+const zaplaconoNaMiejscu = kw => zaokr(kw.reduce((a, p) => a + (ZAPLACONE_ZAWSZE.has(p.forma) || p.zaplacone ? p.kwota : 0), 0));
+
+// ───────────────────────── widok: produkty ─────────────────────────
 
 function htmlWynikow() {
-  if (!dane.produkty.length) {
-    return `<p class="pusto">Katalog jest pusty. Połącz się z internetem, żeby go pobrać, albo dodaj pozycję spoza cennika.</p>`;
-  }
+  if (!dane.produkty.length) return `<p class="pusto">Katalog jest pusty. Połącz się z internetem, żeby go pobrać, albo dodaj pozycję spoza cennika.</p>`;
   const lista = szukajProduktow(s.szukaj, s.grupa, s.szukaj || s.grupa ? 60 : 24);
   if (!lista.length) return `<p class="pusto">Nic nie pasuje do „${esc(s.szukaj)}”. Możesz dodać pozycję spoza cennika.</p>`;
   const wKoszyku = new Map();
@@ -109,10 +135,11 @@ function htmlPozycji(p) {
   </li>`;
 }
 
-function htmlKoszyka() {
-  if (!s.koszyk.length) return '<p class="pusto">Dotknij produktu, żeby dodać go do zamówienia.</p>';
-  return `<ul class="pozycje">${s.koszyk.map(htmlPozycji).join('')}</ul>`;
-}
+const htmlKoszyka = () => (s.koszyk.length
+  ? `<ul class="pozycje">${s.koszyk.map(htmlPozycji).join('')}</ul>`
+  : '<p class="pusto">Dotknij produktu, żeby dodać go do zamówienia.</p>');
+
+// ───────────────────────── widok: klient, wysyłka, płatność ─────────────────────────
 
 function opisKlienta() {
   const k = biezacyKlient();
@@ -120,41 +147,84 @@ function opisKlienta() {
     const ceny = opisCenKlienta(k);
     return `Stały klient: ${k.nazwa || 'bez nazwy'}${k.email ? ' · ' + k.email : ''}${ceny ? ' · ' + ceny : ''}`;
   }
-  const e = telefonE164(s.telefon);
   if (!s.telefon) return 'Telefon jest potrzebny do wysłania SMS-a lub WhatsAppa.';
-  if (!e) return 'Sprawdź numer – 9 cyfr albo z kierunkowym, np. +44…';
+  if (!telefonE164(s.telefon)) return 'Sprawdź numer – 9 cyfr albo z kierunkowym, np. +44…';
   return 'Nowy klient – zapisze się na liście klientów.';
 }
 
-function htmlDostawy() {
-  const lista = wysylkiAktywne();
-  const w = wysylka(s.dostawaId);
-  const auto = kosztWysylki(w, sumaProduktow());
-  return `<div class="chipy formy dostawy">
-      <button type="button" class="chip" data-akcja="dostawa" data-id="" aria-pressed="${!s.dostawaId}">Na miejscu</button>
-      ${lista.map(x => `<button type="button" class="chip" data-akcja="dostawa" data-id="${esc(x.id)}" aria-pressed="${s.dostawaId === String(x.id)}">${esc(x.nazwa)}</button>`).join('')}
+function htmlWysylki() {
+  if (s.typ !== 'wysylka') return '';
+  const t = kosztTransportu();
+  return `<article class="panel wysylka-panel">
+    <header><h2>Wysyłka InPost</h2></header>
+    <label class="przycisk szeroki zrzuty${ocrTrwa ? ' trwa' : ''}">
+      <input type="file" accept="image/*" multiple data-pole="zrzuty" hidden>
+      <span id="ocr-opis">${ocrTrwa ? 'Odczytuję…' : 'Wczytaj zrzuty z InPost (dane odbiorcy i szczegóły przesyłki)'}</span>
+    </label>
+    <p class="podpowiedz">Dane z obrazka wpisują się w pola poniżej i w dane klienta – sprawdź je przed zapisem.</p>
+    <label class="pole"><span class="etykieta">Paczkomat</span>
+      <input data-pole="paczkomat" autocomplete="off" autocapitalize="characters" value="${esc(s.paczkomat)}" placeholder="np. WAWR01BAPP (puste = kurier)"></label>
+    <label class="pole"><span class="etykieta">Adres ${s.paczkomat ? 'paczkomatu' : 'dostawy'}</span>
+      <input data-pole="adres" autocomplete="off" value="${esc(s.adres)}" placeholder="ulica, kod, miejscowość"></label>
+    <div class="dwa-pola">
+      <label class="pole"><span class="etykieta">Numer przesyłki</span><input data-pole="nrPrzesylki" inputmode="numeric" autocomplete="off" value="${esc(s.nrPrzesylki)}"></label>
+      <label class="pole"><span class="etykieta">Kod nadania</span><input data-pole="kodNadania" inputmode="numeric" autocomplete="off" value="${esc(s.kodNadania)}"></label>
     </div>
-    ${!lista.length ? '<p class="podpowiedz">Metody wysyłki dodasz w zakładce Sklep.</p>' : ''}
-    ${w ? `${w.opis ? `<p class="podpowiedz">${esc(w.opis)}</p>` : ''}
-      ${String(w.wymaga_adresu) === 'true' || w.wymaga_adresu === true ? `<label class="pole"><span class="etykieta">Adres dostawy / paczkomat</span>
-        <textarea data-pole="adres" rows="2">${esc(s.adres)}</textarea></label>` : ''}
-      <label class="pole"><span class="etykieta">Koszt dostawy</span>
-        <input data-pole="koszt" inputmode="decimal" autocomplete="off" value="${esc(s.kosztTxt)}" placeholder="${esc(liczbaNaTekst(auto))}">
-        <span class="podpowiedz">Z cennika wysyłek: ${esc(kwotaTxt(auto))}${w.darmowa_od !== '' && w.darmowa_od != null ? ` (darmowa od ${esc(kwotaTxt(num(w.darmowa_od)))})` : ''}. Wpisz inną kwotę, żeby ją zmienić.</span></label>` : ''}`;
+    <label class="pole"><span class="etykieta">Transport (pozycja na paragonie)</span>
+      <input data-pole="transport" inputmode="decimal" autocomplete="off" value="${esc(s.transportTxt)}" placeholder="${esc(transportDomyslny())}">
+      ${!isFinite(t) ? '<span class="podpowiedz blad">Sprawdź kwotę transportu.</span>' : ''}</label>
+    <span class="etykieta">Kto wysyła</span>
+    <div class="chipy">${OSOBY_WYSYLKI.map(o => `<button type="button" class="chip" data-akcja="realizuje" data-osoba="${esc(o)}" aria-pressed="${s.realizuje === o}">${esc(o)}</button>`).join('')}</div>
+  </article>`;
 }
 
-export function render() {
+function htmlPlatnosci() {
+  const kw = kwotyPlatnosci();
+  const zapl = zaplaconoNaMiejscu(kw);
+  const razem = suma();
+  return `${kw.map((p, i) => `<div class="platnosc" data-k="${esc(p.k)}">
+      <div class="chipy male">${FORMY.map(([w, e]) => `<button type="button" class="chip" data-akcja="forma" data-forma="${esc(w)}" aria-pressed="${p.forma === w}">${esc(e)}</button>`).join('')}</div>
+      <div class="platnosc-dol">
+        <label class="cena"><span>Kwota${p.auto ? ' (reszta)' : ''}</span>
+          <input data-pole="kwota" inputmode="decimal" autocomplete="off" value="${esc(p.kwotaTxt)}" placeholder="${esc(liczbaNaTekst(p.kwota))}"></label>
+        ${ZAPLACONE_ZAWSZE.has(p.forma) ? '<span class="znacznik-ok">zapłacone</span>'
+          : `<label class="przelacznik"><input type="checkbox" data-pole="zaplacone" ${p.zaplacone ? 'checked' : ''}> zapłacone na miejscu (pokazał potwierdzenie)</label>`}
+        ${kw.length > 1 ? `<button type="button" class="usun" data-akcja="usun-platnosc" aria-label="Usuń płatność">×</button>` : ''}
+      </div>
+    </div>`).join('')}
+    <button type="button" class="link" data-akcja="podziel">+ Podziel płatność</button>
+    <p class="podpowiedz" id="opis-platnosci">${razem - zapl > 0.005
+      ? `Zapłacone teraz: ${kwotaTxt(zapl)} · do zapłaty: <b>${kwotaTxt(zaokr(razem - zapl))}</b> – w wiadomości będą dane do przelewu i BLIK.`
+      : 'Całość zapłacona – wiadomość będzie potwierdzeniem zakupu.'}</p>`;
+}
+
+export function render(arg) {
   if (!gotowe()) { location.replace('#ustawienia'); return; }
+  if (location.hash.startsWith('#edytuj/')) {
+    if (s.tryb !== 'edycja' || s.edytowane !== arg) {
+      const wynik = zaladujDoEdycji(arg);
+      if (!wynik) { $('#widok').innerHTML = '<section class="ekran"><h1>Nie ma takiego zamówienia</h1><p><a href="#lista">Wróć do listy</a></p></section>'; return; }
+    }
+  } else if (s.tryb === 'edycja') {
+    s = wczytajSzkic();
+  }
   const u = ustawienia();
+  const edycja = s.tryb === 'edycja';
   const kontekst = [u.wydarzenie, u.magazyn, u.podmiot].filter(Boolean).join(' · ');
   $('#widok').innerHTML = `
   <section class="ekran nowe">
     <header class="naglowek-zam">
-      <div><span class="etykieta">Nowe zamówienie</span><h1 class="numer">${esc(nastepnyNumer())}</h1></div>
-      <a class="kontekst" href="#ustawienia" title="Zmień w Ustawieniach">${esc(kontekst || 'Ustaw wydarzenie i magazyn')}</a>
+      <div><span class="etykieta">${edycja ? 'Edycja zamówienia' : 'Nowe zamówienie'}</span><h1 class="numer">${esc(edycja ? s.edytowane : nastepnyNumer())}</h1></div>
+      ${edycja ? `<a class="kontekst" href="#zamowienie/${encodeURIComponent(s.edytowane)}">Porzuć zmiany</a>`
+        : `<a class="kontekst" href="#ustawienia" title="Zmień w Ustawieniach">${esc(kontekst || 'Ustaw wydarzenie i magazyn')}</a>`}
     </header>
+    <div class="chipy typ-sprzedazy">
+      <button type="button" class="chip" data-akcja="typ" data-typ="miejsce" aria-pressed="${s.typ === 'miejsce'}">Na miejscu</button>
+      <button type="button" class="chip" data-akcja="typ" data-typ="wysylka" aria-pressed="${s.typ === 'wysylka'}">Wysyłka InPost</button>
+    </div>
     <div class="uklad-zam">
       <div class="kolumna-produkty">
+        <div id="wysylka">${htmlWysylki()}</div>
         <label class="pole szukaj"><span class="sr">Szukaj produktu</span>
           <input type="search" data-pole="szukaj" value="${esc(s.szukaj)}" placeholder="Szukaj: nazwa lub symbol" autocomplete="off" enterkeyhint="search"></label>
         ${dane.grupy.length ? `<div class="chipy male grupy">${dane.grupy.map(g => `<button type="button" class="chip" data-akcja="grupa" data-grupa="${esc(g)}" aria-pressed="${s.grupa === g}">${esc(g)}</button>`).join('')}</div>` : ''}
@@ -182,22 +252,18 @@ export function render() {
         </article>
 
         <article class="panel">
-          <h2>Dostawa</h2>
-          <div id="dostawa">${htmlDostawy()}</div>
-        </article>
-
-        <article class="panel">
           <h2>Płatność</h2>
-          <div class="chipy formy">${FORMY.map(([w, e]) => `<button type="button" class="chip" data-akcja="forma" data-forma="${esc(w)}" aria-pressed="${s.forma === w}">${esc(e)}</button>`).join('')}</div>
-          <p class="podpowiedz" id="opis-formy">${PLATNE_POZNIEJ.has(s.forma) ? 'Klient zapłaci później – w wiadomości będą dane do przelewu i BLIK.' : 'Zapłacone na miejscu – wiadomość będzie potwierdzeniem zakupu.'}</p>
+          <div id="platnosci">${htmlPlatnosci()}</div>
           <label class="pole"><span class="etykieta">Uwagi (nieobowiązkowo)</span>
             <textarea data-pole="uwagi" rows="2">${esc(s.uwagi)}</textarea></label>
         </article>
 
         <div class="zatwierdz">
-          <button type="button" class="glowny" data-akcja="zatwierdz" data-kanal="sms">Zatwierdź i wyślij SMS</button>
-          <button type="button" class="whatsapp" data-akcja="zatwierdz" data-kanal="wa">Zatwierdź i wyślij WhatsApp</button>
-          <button type="button" class="link" data-akcja="zatwierdz" data-kanal="">Zatwierdź bez wiadomości</button>
+          ${edycja ? `<button type="button" class="glowny" data-akcja="zatwierdz" data-kanal="">Zapisz zmiany</button>
+            <button type="button" class="link" data-akcja="zatwierdz" data-kanal="sms">Zapisz i wyślij klientowi nowe podsumowanie SMS</button>`
+          : `<button type="button" class="glowny" data-akcja="zatwierdz" data-kanal="sms">Zatwierdź i wyślij SMS</button>
+            <button type="button" class="whatsapp" data-akcja="zatwierdz" data-kanal="wa">Zatwierdź i wyślij WhatsApp</button>
+            <button type="button" class="link" data-akcja="zatwierdz" data-kanal="">Zatwierdź bez wiadomości</button>`}
         </div>
       </div>
     </div>
@@ -205,6 +271,11 @@ export function render() {
   </section>`;
 }
 
+function opisSumy() {
+  if (s.typ !== 'wysylka') return '';
+  const t = kosztTransportu();
+  return `produkty ${kwotaTxt(sumaProduktow())} + transport ${isFinite(t) ? kwotaTxt(t) : '?'}`;
+}
 function htmlPaska() {
   const n = s.koszyk.length;
   return `<span>${n} ${odmiana(n, 'pozycja', 'pozycje', 'pozycji')} · zobacz zamówienie ↓</span><b>${esc(kwotaTxt(suma()))}</b>`;
@@ -215,26 +286,21 @@ function odswiezPasek() {
   p.hidden = !s.koszyk.length;
   p.innerHTML = htmlPaska();
 }
-
-function opisSumy() {
-  const d = kosztDostawy();
-  return s.dostawaId ? `produkty ${kwotaTxt(sumaProduktow())} + dostawa ${kwotaTxt(d)}` : '';
+function odswiezPlatnosci() {
+  const el = document.activeElement;
+  const pole = el?.dataset?.pole === 'kwota' ? el.closest('.platnosc')?.dataset.k : null;
+  const pos = pole ? el.selectionStart : 0;
+  $('#platnosci').innerHTML = htmlPlatnosci();
+  if (pole) { const i = $(`.platnosc[data-k="${pole}"] [data-pole="kwota"]`); i?.focus(); i?.setSelectionRange(pos, pos); }
 }
 function odswiezSume() {
   $('#suma').textContent = kwotaTxt(suma());
   $('#suma-opis').textContent = opisSumy();
   odswiezPasek();
+  odswiezPlatnosci();
 }
 function odswiezWyniki() { $('#wyniki').innerHTML = htmlWynikow(); }
-function odswiezDostawe() { $('#dostawa').innerHTML = htmlDostawy(); }
-/** Klient zmienił się – ceny w koszyku i na kartach produktów liczą się od nowa. */
-function ustawKlienta(k) {
-  const nowyId = k ? String(k.id) : '';
-  if (nowyId === s.klientId) return;
-  s.klientId = nowyId;
-  odswiezKoszyk();
-  odswiezWyniki();
-}
+function odswiezWysylke() { $('#wysylka').innerHTML = htmlWysylki(); }
 function odswiezKoszyk() {
   $('#koszyk').innerHTML = htmlKoszyka();
   odswiezSume();
@@ -242,7 +308,6 @@ function odswiezKoszyk() {
   const w = $('[data-akcja="wyczysc"]', nag);
   if (s.koszyk.length && !w) nag.insertAdjacentHTML('beforeend', '<button type="button" class="link" data-akcja="wyczysc">Wyczyść</button>');
   if (!s.koszyk.length && w) w.remove();
-  odswiezPasek();
 }
 function odswiezPozycje(li, p) {
   const c = cena(p);
@@ -253,9 +318,41 @@ function odswiezPozycje(li, p) {
   r.textContent = zla ? 'Nieprawidłowa cena' : opisRabatu(p);
   r.classList.toggle('blad', Boolean(zla));
   odswiezSume();
-  if (s.dostawaId && !String(s.kosztTxt || '').trim()) {
-    const pole = $('[data-pole="koszt"]');
-    if (pole) pole.placeholder = liczbaNaTekst(kosztWysylki(wysylka(s.dostawaId), sumaProduktow()));
+}
+function ustawKlienta(k) {
+  const nowyId = k ? String(k.id) : '';
+  if (nowyId === s.klientId) return;
+  s.klientId = nowyId;
+  odswiezKoszyk();
+  odswiezWyniki();
+}
+
+// ───────────────────────── zrzuty InPost ─────────────────────────
+
+async function wczytajZrzuty(pliki) {
+  if (!pliki.length || ocrTrwa) return;
+  ocrTrwa = true;
+  odswiezWysylke();
+  const opis = t => { const el = $('#ocr-opis'); if (el) el.textContent = t; };
+  try {
+    const { dane: d } = await rozpoznaj([...pliki], (p, t) => opis(p ? `${t} ${Math.round(p * 100)}%` : t));
+    const znalezione = [];
+    if (d.nazwa) { s.nazwa = d.nazwa; znalezione.push('odbiorca'); }
+    if (d.telefon) { s.telefon = d.telefon; znalezione.push('telefon'); }
+    if (d.email) { s.email = d.email; znalezione.push('e-mail'); }
+    if (d.paczkomat) { s.paczkomat = d.paczkomat; znalezione.push('paczkomat'); }
+    if (d.adres) s.adres = d.adres;
+    if (d.nrPrzesylki) { s.nrPrzesylki = d.nrPrzesylki; znalezione.push('nr przesyłki'); }
+    if (d.kodNadania) { s.kodNadania = d.kodNadania; znalezione.push('kod nadania'); }
+    const k = klientPoTelefonie(s.telefon);
+    if (k) { s.klientId = String(k.id); if (!s.email && k.email) s.email = k.email; }
+    toast(znalezione.length ? `Odczytano: ${znalezione.join(', ')}. Sprawdź dane.` : 'Nie udało się odczytać danych – wpisz je ręcznie.', znalezione.length ? 'ok' : 'blad', 5000);
+  } catch (e) {
+    toast(e.message, 'blad', 7000);
+  } finally {
+    ocrTrwa = false;
+    zachowaj();
+    render(s.edytowane);
   }
 }
 
@@ -265,10 +362,11 @@ const pozycjaZ = el => {
   const li = el.closest('li[data-k]');
   return li ? [li, s.koszyk.find(p => p.k === li.dataset.k)] : [null, null];
 };
+const platnoscZ = el => s.platnosci.find(p => p.k === el.closest('.platnosc')?.dataset.k);
 
 function wejscie(e) {
   const pole = e.target.dataset.pole;
-  if (!pole) return;
+  if (!pole || pole === 'zrzuty') return;
   const v = e.target.value;
   if (pole === 'szukaj') { s.szukaj = v; odswiezWyniki(); }
   else if (pole === 'telefon') {
@@ -280,22 +378,20 @@ function wejscie(e) {
     }
     ustawKlienta(k || (biezacyKlient() && !telefonE164(biezacyKlient().telefon) ? biezacyKlient() : null));
     $('#opis-klienta').textContent = opisKlienta();
-  }
-  else if (pole === 'nazwa-klienta') {
+  } else if (pole === 'nazwa-klienta') {
     s.nazwa = v;
     const k = dane.klienci.find(x => x.nazwa && String(x.nazwa).trim().toLowerCase() === v.trim().toLowerCase());
     if (k && String(k.id) !== s.klientId) {
       ustawKlienta(k);
       if (k.telefon) { s.telefon = telefonE164(k.telefon) || k.telefon; $('[data-pole="telefon"]').value = s.telefon; }
       if (!s.email && k.email) { s.email = k.email; $('[data-pole="email"]').value = k.email; }
-      if (!s.adres && k.adres) s.adres = k.adres;
       $('#opis-klienta').textContent = opisKlienta();
     }
-  }
-  else if (pole === 'adres') s.adres = v;
-  else if (pole === 'koszt') { s.kosztTxt = v; odswiezSume(); }
-  else if (pole === 'email') s.email = v;
-  else if (pole === 'uwagi') s.uwagi = v;
+  } else if (['email', 'uwagi', 'adres', 'nrPrzesylki', 'kodNadania'].includes(pole)) s[pole] = v;
+  else if (pole === 'paczkomat') s.paczkomat = v.toUpperCase();
+  else if (pole === 'transport') { s.transportTxt = v; $('#suma').textContent = kwotaTxt(suma()); $('#suma-opis').textContent = opisSumy(); odswiezPasek(); odswiezPlatnosci(); }
+  else if (pole === 'kwota') { const p = platnoscZ(e.target); if (p) { p.kwotaTxt = v; odswiezPlatnosci(); } }
+  else if (pole === 'zaplacone') { const p = platnoscZ(e.target); if (p) { p.zaplacone = e.target.checked; odswiezPlatnosci(); } }
   else {
     const [li, p] = pozycjaZ(e.target);
     if (!p) return;
@@ -308,8 +404,10 @@ function wejscie(e) {
 }
 
 function zmiana(e) {
-  if (e.target.dataset.pole !== 'cena') return;
-  // „10%” zamienia się po wyjściu z pola na wyliczoną cenę, żeby było widać, co trafi do zamówienia.
+  const pole = e.target.dataset.pole;
+  if (pole === 'zrzuty') { wczytajZrzuty(e.target.files); return; }
+  if (pole === 'zaplacone') { wejscie(e); return; }
+  if (pole !== 'cena') return;
   const [li, p] = pozycjaZ(e.target);
   if (!p || !/%/.test(p.cenaTxt || '')) return;
   const c = cena(p);
@@ -333,7 +431,15 @@ async function klik(e) {
   const akcja = b.dataset.akcja;
   if (akcja === 'dodaj') dodaj(b.dataset.symbol);
   else if (akcja === 'do-koszyka') $('#panel-koszyka').scrollIntoView({ behavior: 'smooth', block: 'start' });
-  else if (akcja === 'grupa') {
+  else if (akcja === 'typ') {
+    s.typ = b.dataset.typ;
+    $$('.typ-sprzedazy .chip').forEach(c => c.setAttribute('aria-pressed', String(c.dataset.typ === s.typ)));
+    odswiezWysylke();
+    odswiezSume();
+  } else if (akcja === 'realizuje') {
+    s.realizuje = s.realizuje === b.dataset.osoba ? '' : b.dataset.osoba;
+    $$('[data-akcja="realizuje"]').forEach(c => c.setAttribute('aria-pressed', String(c.dataset.osoba === s.realizuje)));
+  } else if (akcja === 'grupa') {
     s.grupa = s.grupa === b.dataset.grupa ? '' : b.dataset.grupa;
     $$('.grupy .chip').forEach(c => c.setAttribute('aria-pressed', String(c.dataset.grupa === s.grupa)));
     odswiezWyniki();
@@ -341,6 +447,8 @@ async function klik(e) {
     s.koszyk.push({ k: uuid(), symbol: '', nazwa: '', grupa: '', jm: 'szt.', cena_cennik: '', iloscTxt: '1', cenaTxt: '' });
     odswiezKoszyk();
     $(`li[data-k="${s.koszyk[s.koszyk.length - 1].k}"] [data-pole="nazwa"]`)?.focus();
+  } else if (akcja === 'usun' && b.closest('.platnosc')) {
+    // obsługiwane niżej jako usun-platnosc
   } else if (akcja === 'usun' || akcja === 'minus' || akcja === 'plus') {
     const [li, p] = pozycjaZ(b);
     if (!p) return;
@@ -356,23 +464,57 @@ async function klik(e) {
     s.koszyk = [];
     odswiezKoszyk();
     odswiezWyniki();
-  } else if (akcja === 'dostawa') {
-    s.dostawaId = b.dataset.id;
-    s.kosztTxt = '';
-    if (s.dostawaId && !s.adres && biezacyKlient()?.adres) s.adres = biezacyKlient().adres;
-    odswiezDostawe();
-    odswiezSume();
   } else if (akcja === 'forma') {
-    s.forma = b.dataset.forma;
-    $$('.formy .chip').forEach(c => c.setAttribute('aria-pressed', String(c.dataset.forma === s.forma)));
-    $('#opis-formy').textContent = PLATNE_POZNIEJ.has(s.forma)
-      ? 'Klient zapłaci później – w wiadomości będą dane do przelewu i BLIK.'
-      : 'Zapłacone na miejscu – wiadomość będzie potwierdzeniem zakupu.';
+    const p = platnoscZ(b);
+    if (p) { p.forma = b.dataset.forma; if (ZAPLACONE_ZAWSZE.has(p.forma)) p.zaplacone = true; else p.zaplacone = false; odswiezPlatnosci(); }
+  } else if (akcja === 'podziel') {
+    // poprzednia „reszta” dostaje wyliczoną kwotę, nowy wiersz przejmuje resztę
+    const kw = kwotyPlatnosci();
+    s.platnosci.forEach((p, i) => { if (kw[i].auto) p.kwotaTxt = liczbaNaTekst(kw[i].kwota); });
+    const uzyte = new Set(s.platnosci.map(p => p.forma));
+    const forma = ['Gotówka', 'BLIK', 'Przelew', 'Karta'].find(f => !uzyte.has(f)) || 'Gotówka';
+    s.platnosci.push({ k: uuid(), forma, kwotaTxt: '', zaplacone: ZAPLACONE_ZAWSZE.has(forma) });
+    const ost = s.platnosci[s.platnosci.length - 2];
+    ost.kwotaTxt = '';   // pierwsza część do wpisania, ostatnia liczy się sama
+    odswiezPlatnosci();
+    $(`.platnosc[data-k="${ost.k}"] [data-pole="kwota"]`)?.focus();
+  } else if (akcja === 'usun-platnosc') {
+    const p = platnoscZ(b);
+    s.platnosci = s.platnosci.filter(x => x !== p);
+    if (s.platnosci.length === 1) s.platnosci[0].kwotaTxt = '';
+    odswiezPlatnosci();
   } else if (akcja === 'zatwierdz') {
     await zatwierdz(b.dataset.kanal, b);
     return;
   }
   zachowaj();
+}
+
+// ───────────────────────── edycja ─────────────────────────
+
+function zaladujDoEdycji(id) {
+  const z = zamowienie(id);
+  if (!z) return false;
+  const poz = pozycjeZamowienia(z.id);
+  const k = klientId(z.klient_id);
+  const trans = poz.find(p => p.symbol === SYMBOL_TRANSPORTU);
+  let platnosci = [];
+  try { platnosci = JSON.parse(z.platnosci || '[]'); } catch { /* starsze zamówienie */ }
+  if (!platnosci.length) platnosci = [{ forma: ['Mieszana', ''].includes(z.forma_platnosci) ? 'Przelew' : z.forma_platnosci, kwota: num(z.suma_brutto), zaplacone: z.status === STATUSY.oplacone }];
+  const [paczkomat, ...resztaAdresu] = /^[A-Z]{3}[A-Z0-9]{2,9}(,|$)/.test(String(z.adres_dostawy || '')) ? String(z.adres_dostawy).split(/,\s*/) : ['', z.adres_dostawy || ''];
+  s = {
+    ...pusty(), tryb: 'edycja', edytowane: z.id, typ: z.typ === 'wysylka' || trans || z.dostawa ? 'wysylka' : 'miejsce',
+    koszyk: poz.filter(p => p.symbol !== SYMBOL_TRANSPORTU).map(p => ({
+      k: uuid(), posId: p.id, symbol: p.symbol || '', nazwa: p.nazwa, grupa: p.kategoria || '', jm: p.jm || 'szt.',
+      cena_cennik: p.cena_cennik === '' ? '' : num(p.cena_cennik), iloscTxt: liczbaNaTekst(num(p.ilosc)),
+      cenaTxt: p.symbol && p.cena_cennik !== '' && num(p.cena) === cenaKlienta(k, p.symbol, num(p.cena_cennik)) ? '' : liczbaNaTekst(num(p.cena)),
+    })),
+    transPosId: trans?.id || '', transportTxt: trans ? liczbaNaTekst(num(trans.cena)) : (num(z.koszt_dostawy) ? liczbaNaTekst(num(z.koszt_dostawy)) : ''),
+    klientId: k ? String(k.id) : '', telefon: k?.telefon || '', nazwa: k?.nazwa || '', email: k?.email || '', uwagi: z.uwagi || '',
+    paczkomat, adres: resztaAdresu.join(', '), nrPrzesylki: z.nr_przesylki || '', kodNadania: z.kod_nadania || '', realizuje: z.realizuje || '',
+    platnosci: platnosci.map((p, i) => ({ k: uuid(), forma: p.forma, kwotaTxt: i === platnosci.length - 1 ? '' : liczbaNaTekst(num(p.kwota)), zaplacone: Boolean(p.zaplacone) })),
+  };
+  return true;
 }
 
 // ───────────────────────── zapis ─────────────────────────
@@ -384,12 +526,16 @@ function sprawdz(kanal) {
     if (!(ilosc(p) > 0)) return `Sprawdź ilość: ${p.nazwa}.`;
     if (!isFinite(cena(p)) || cena(p) < 0) return `Sprawdź cenę: ${p.nazwa}.`;
   }
+  if (s.typ === 'wysylka') {
+    if (!isFinite(kosztTransportu()) || kosztTransportu() < 0) return 'Sprawdź kwotę transportu.';
+    if (!s.paczkomat.trim() && !s.adres.trim()) return 'Wpisz paczkomat albo adres dostawy.';
+  }
   if (s.telefon && !telefonE164(s.telefon)) return 'Sprawdź numer telefonu klienta.';
   if (kanal && !telefonE164(s.telefon)) return `Wpisz telefon klienta, żeby wysłać ${kanal === 'wa' ? 'WhatsApp' : 'SMS'}.`;
   if (s.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.email.trim())) return 'Sprawdź adres e-mail.';
-  if (s.dostawaId && String(s.kosztTxt || '').trim() && !isFinite(liczba(s.kosztTxt))) return 'Sprawdź koszt dostawy.';
-  const w = wysylka(s.dostawaId);
-  if (w && (w.wymaga_adresu === true || String(w.wymaga_adresu) === 'true') && !s.adres.trim()) return 'Wpisz adres dostawy (albo numer paczkomatu).';
+  const kw = kwotyPlatnosci();
+  if (kw.some(p => !isFinite(p.kwota) || p.kwota < 0)) return 'Sprawdź kwoty płatności – suma części nie może przekraczać kwoty zamówienia.';
+  if (Math.abs(kw.reduce((a, p) => a + p.kwota, 0) - suma()) > 0.009) return 'Kwoty płatności nie sumują się do kwoty zamówienia.';
   return '';
 }
 
@@ -405,59 +551,98 @@ async function zatwierdz(kanal, przycisk) {
   przycisk.disabled = true;
   try {
     const u = ustawienia();
-    const numer = nastepnyNumer();
+    const edycja = s.tryb === 'edycja';
+    const stare = edycja ? zamowienie(s.edytowane) : null;
+    const numer = edycja ? s.edytowane : nastepnyNumer();
     const paczki = { KLIENCI: [], ZAMOWIENIA: [], ZAMOWIENIA_POZ: [] };
 
-    // klient: istniejący po telefonie (albo e-mailu), inaczej nowy wiersz w KLIENCI
-    let klientId = '';
+    // klient: wybrany, po telefonie albo e-mailu, inaczej nowy
+    let klientIdZ = '';
     let nowy = '';
     const tel = telefonE164(s.telefon);
     const email = s.email.trim();
     const nazwa = s.nazwa.trim();
+    const adresKlienta = s.typ === 'wysylka' ? [s.paczkomat.trim(), s.adres.trim()].filter(Boolean).join(', ') : '';
     if (tel || nazwa || email) {
       const k = biezacyKlient() || (tel && klientPoTelefonie(tel)) || (email && dane.klienci.find(x => String(x.email || '').toLowerCase() === email.toLowerCase())) || null;
       if (k) {
-        klientId = k.id;
+        klientIdZ = k.id;
         const uzup = {};
         if (!k.nazwa && nazwa) uzup.nazwa = nazwa;
         if (!k.email && email) uzup.email = email;
         if (!k.telefon && tel) uzup.telefon = tel;
-        if (!k.adres && s.adres.trim()) uzup.adres = s.adres.trim();
+        if (adresKlienta && k.adres !== adresKlienta) uzup.adres = adresKlienta;
         if (Object.keys(uzup).length) paczki.KLIENCI.push({ ...k, ...uzup });
       } else {
-        klientId = uuid();
+        klientIdZ = uuid();
         nowy = 'tak';
-        paczki.KLIENCI.push({ id: klientId, symbol_sgt: '', nazwa, nip: '', email, telefon: tel, miasto: '', zrodlo: 'stoisko', adres: s.adres.trim() });
+        paczki.KLIENCI.push({ id: klientIdZ, symbol_sgt: '', nazwa, nip: '', email, telefon: tel, miasto: '', zrodlo: 'stoisko', adres: adresKlienta });
       }
     }
 
-    s.koszyk.forEach((p, i) => {
+    // pozycje: przy edycji zostają dotychczasowe numery, usunięte dostają status „usunięta”
+    const istniejace = edycja ? pozycjeZamowienia(numer) : [];
+    let nastepny = Math.max(0, ...istniejace.map(p => Number(String(p.id).split('-').pop()) || 0)) + 1;
+    const noweId = () => `${numer}-${nastepny++}`;
+    const wierszPoz = (id, p) => {
       const c = cena(p);
       const cennik = p.cena_cennik === '' ? '' : num(p.cena_cennik);
-      paczki.ZAMOWIENIA_POZ.push({
-        id: `${numer}-${i + 1}`, zamowienie_id: numer, symbol: p.symbol, nazwa: String(p.nazwa).trim(),
-        kategoria: p.grupa || '', podkategoria: '', ilosc: ilosc(p), jm: p.jm || 'szt.',
-        cena_cennik: cennik, cena: c, cena_reczna: cennik === '' || Math.abs(cennik - c) >= 0.005, wartosc: wartosc(p),
-      });
+      return { id, zamowienie_id: numer, symbol: p.symbol, nazwa: String(p.nazwa).trim(), kategoria: p.grupa || '', podkategoria: '',
+        ilosc: ilosc(p), jm: p.jm || 'szt.', cena_cennik: cennik, cena: c, cena_reczna: cennik === '' || Math.abs(cennik - c) >= 0.005,
+        wartosc: wartosc(p), status: '' };
+    };
+    const uzyteId = new Set();
+    s.koszyk.forEach(p => {
+      const id = p.posId && istniejace.some(x => x.id === p.posId) ? p.posId : noweId();
+      uzyteId.add(id);
+      paczki.ZAMOWIENIA_POZ.push(wierszPoz(id, p));
     });
+    const transport = kosztTransportu();
+    if (s.typ === 'wysylka') {
+      const id = s.transPosId && istniejace.some(x => x.id === s.transPosId) ? s.transPosId : noweId();
+      uzyteId.add(id);
+      paczki.ZAMOWIENIA_POZ.push({ id, zamowienie_id: numer, symbol: SYMBOL_TRANSPORTU, nazwa: 'Transport', kategoria: 'Usługi', podkategoria: '',
+        ilosc: 1, jm: 'szt.', cena_cennik: '', cena: transport, cena_reczna: false, wartosc: transport, status: '' });
+    }
+    istniejace.filter(p => !uzyteId.has(p.id)).forEach(p => paczki.ZAMOWIENIA_POZ.push({ ...p, status: 'usunięta' }));
 
+    const kw = kwotyPlatnosci();
+    const zapl = zaplaconoNaMiejscu(kw);
+    const razem = suma();
+    const formy = [...new Set(kw.filter(p => p.kwota > 0).map(p => p.forma))];
+    const sumaFormy = f => zaokr(kw.filter(p => p.forma === f).reduce((a, p) => a + p.kwota, 0));
+    const wysylka = s.typ === 'wysylka';
     paczki.ZAMOWIENIA.push({
-      id: numer, urzadzenie: u.kto, podmiot: u.podmiot, zrodlo: 'stoisko', data: dataLok(),
-      klient_id: klientId, klient_nowy: nowy, wydarzenie: u.wydarzenie, magazyn: u.magazyn,
-      forma_platnosci: s.forma, suma_brutto: suma(), wartosc_produktow: sumaProduktow(),
-      dostawa_id: s.dostawaId, dostawa: wysylka(s.dostawaId)?.nazwa || '', koszt_dostawy: kosztDostawy(),
-      adres_dostawy: s.dostawaId ? s.adres.trim() : '',
-      status: PLATNE_POZNIEJ.has(s.forma) ? STATUSY.czeka : STATUSY.oplacone,
-      nr_dok_sgt: '', uwagi: s.uwagi.trim(),
+      ...(stare || {}),
+      id: numer, urzadzenie: stare?.urzadzenie || u.kto, podmiot: stare?.podmiot || u.podmiot, zrodlo: stare?.zrodlo || 'stoisko',
+      data: stare?.data || dataLok(), klient_id: klientIdZ, klient_nowy: stare ? stare.klient_nowy : nowy,
+      wydarzenie: stare?.wydarzenie ?? u.wydarzenie, magazyn: stare?.magazyn ?? u.magazyn,
+      typ: wysylka ? 'wysylka' : 'miejsce',
+      forma_platnosci: formy.length > 1 ? 'Mieszana' : (formy[0] || kw[0].forma),
+      platnosci: JSON.stringify(kw.map(p => ({ forma: p.forma, kwota: p.kwota, zaplacone: ZAPLACONE_ZAWSZE.has(p.forma) || Boolean(p.zaplacone) }))),
+      kw_gotowka: sumaFormy('Gotówka'), kw_blik: sumaFormy('BLIK'), kw_przelew: sumaFormy('Przelew'), kw_karta: sumaFormy('Karta'),
+      zaplacono: zapl, suma_brutto: razem, wartosc_produktow: sumaProduktow(),
+      dostawa_id: '', dostawa: wysylka ? (s.paczkomat.trim() ? 'Paczkomat InPost' : 'Kurier InPost') : '',
+      koszt_dostawy: wysylka ? transport : 0,
+      adres_dostawy: wysylka ? [s.paczkomat.trim(), s.adres.trim()].filter(Boolean).join(', ') : '',
+      nr_przesylki: wysylka ? s.nrPrzesylki.trim() : '', kod_nadania: wysylka ? s.kodNadania.trim() : '',
+      realizuje: wysylka ? s.realizuje : '',
+      status: stare?.status === STATUSY.anulowane ? stare.status : (zapl >= razem - 0.005 ? STATUSY.oplacone : STATUSY.czeka),
+      nr_dok_sgt: stare?.nr_dok_sgt || '', uwagi: s.uwagi.trim(),
     });
 
     await sync.zapisz(Object.entries(paczki).map(([karta, wiersze]) => ({ karta, wiersze })));
-    zapamietajNumer(numer);
+    if (!edycja) zapamietajNumer(numer);
     await wczytaj();
-    s = { ...pusty(), forma: s.forma };
-    zachowaj();
-    const ile = paczki.ZAMOWIENIA_POZ.length;
-    toast(`Zapisano zamówienie ${numer} (${ile} ${odmiana(ile, 'pozycja', 'pozycje', 'pozycji')}).`, 'ok');
+    if (edycja) {
+      s = wczytajSzkic();
+    } else {
+      const forma = s.platnosci[0]?.forma || 'Przelew';
+      s = { ...pusty(), typ: s.typ, realizuje: s.realizuje, platnosci: [{ k: uuid(), forma, kwotaTxt: '', zaplacone: ZAPLACONE_ZAWSZE.has(forma) }] };
+      zachowaj();
+    }
+    const ile = paczki.ZAMOWIENIA_POZ.filter(p => p.status !== 'usunięta').length;
+    toast(`${edycja ? 'Zapisano zmiany' : 'Zapisano zamówienie'} ${numer} (${ile} ${odmiana(ile, 'pozycja', 'pozycje', 'pozycji')}).`, 'ok');
     location.hash = `#zamowienie/${encodeURIComponent(numer)}${kanal ? '/' + kanal : ''}`;
   } catch (err) {
     toast('Nie udało się zapisać zamówienia: ' + err.message, 'blad', 7000);

@@ -4,9 +4,9 @@
 
 import { $, $$, esc, kwotaTxt, iloscTxt, num, zaokr, liczba, liczbaNaTekst, dataKrotko, toast, okno } from './util.js';
 import { wczytaj, zamowienie, pozycjeZamowienia, klient, telefonE164, telefonCzytelny, opisCenKlienta } from './dane.js';
-import { STATUSY, PLATNE_POZNIEJ, FORMY, ETYKIETY_STATUSOW, OSOBY_WYSYLKI } from './konfiguracja.js';
+import { STATUSY, PLATNE_POZNIEJ, FORMY, ETYKIETY_STATUSOW, OSOBY_WYSYLKI, SYMBOL_TRANSPORTU } from './konfiguracja.js';
 import { ustawienia } from './api.js';
-import { trescWiadomosci, trescDlaWysylki, linkSms, linkWhatsApp, linkWhatsAppDoGrupy, otworzLink } from './wiadomosc.js';
+import { trescWiadomosci, trescDlaWysylki, linkSms, linkWhatsApp, linkWhatsAppDoGrupy, otworzLink, platnosciZamowienia } from './wiadomosc.js';
 import { dataLok } from './util.js';
 import * as sync from './sync.js';
 
@@ -134,12 +134,13 @@ function render(arg) {
             <button type="button" class="link" data-akcja="od-nowa">Przywróć treść</button>
           </div>
         </article>`}
+        ${!nowe && z.dostawa && !anulowane ? `<article class="panel do-grupy"><h2>Do grupy ZAMÓWIENIA</h2>${htmlWysylki(z)}</article>` : ''}
       </div>
 
       <div>
         ${nowe ? '' : `<article class="panel">
           <h2>Pozycje</h2>
-          <table class="tabela"><tbody>${poz.map(p => `<tr>
+          <table class="tabela"><tbody>${poz.filter(p => p.symbol !== SYMBOL_TRANSPORTU).map(p => `<tr>
               <td>${esc(p.nazwa)}${p.symbol ? `<small>${esc(p.symbol)}</small>` : ''}</td>
               <td class="liczba">${esc(iloscTxt(num(p.ilosc)))} × ${esc(kwotaTxt(num(p.cena)))}${String(p.cena_reczna) === 'true' && p.cena_cennik !== '' ? `<small>cennik ${esc(kwotaTxt(num(p.cena_cennik)))}</small>` : ''}</td>
               <td class="liczba"><b>${esc(kwotaTxt(num(p.wartosc)))}</b></td></tr>`).join('')}
@@ -152,11 +153,10 @@ function render(arg) {
           <dl class="info">
             <div><dt>Data</dt><dd>${esc(dataKrotko(z.data))}</dd></div>
             <div><dt>Klient</dt><dd>${k ? `<a href="#klient/${encodeURIComponent(k.id)}">${esc([k.nazwa, telefonCzytelny(k.telefon), k.email].filter(Boolean).join(' · '))}</a>` : '—'}</dd></div>
-            <div><dt>Płatność</dt><dd>${esc(z.forma_platnosci || '')}</dd></div>
-            ${z.dostawa ? `<div><dt>Dostawa</dt><dd>${esc(z.dostawa)}${z.adres_dostawy ? '<br>' + esc(z.adres_dostawy) : ''}</dd></div>` : ''}
+            <div><dt>Płatność</dt><dd>${platnosciZamowienia(z).map(p => `${esc(p.forma)} ${esc(kwotaTxt(p.kwota))} – ${p.zaplacone ? 'zapłacone' : '<b>czeka</b>'}`).join('<br>')}</dd></div>
+            ${z.dostawa ? `<div><dt>Dostawa</dt><dd>${esc(z.dostawa)}${z.adres_dostawy ? '<br>' + esc(z.adres_dostawy) : ''}${z.nr_przesylki ? `<br><small>nr przesyłki ${esc(z.nr_przesylki)}</small>` : ''}</dd></div>` : ''}
           </dl>
-          ${z.dostawa && !anulowane ? htmlInpost(z, k) : ''}
-          ${z.dostawa && !anulowane && !nowe ? htmlWysylki(z) : ''}
+          ${z.dostawa && !anulowane && !z.nr_przesylki ? htmlInpost(z, k) : ''}
           <dl class="info">
             <div><dt>Wydarzenie</dt><dd>${esc([z.wydarzenie, z.magazyn, z.podmiot].filter(Boolean).join(' · ') || '—')}</dd></div>
             ${z.uwagi ? `<div><dt>Uwagi</dt><dd>${esc(z.uwagi)}</dd></div>` : ''}
@@ -167,6 +167,7 @@ function render(arg) {
               <button type="submit" class="drugorzedny">Zapisz</button></span></label>
           </form>
           <div class="przyciski">
+            ${!anulowane ? `<a class="przycisk" href="#edytuj/${encodeURIComponent(z.id)}">Edytuj zamówienie</a>` : ''}
             ${z.status === STATUSY.czeka ? '<button type="button" data-akcja="oplacone">Oznacz jako opłacone</button>' : ''}
             ${!anulowane ? '<button type="button" class="drugorzedny" data-akcja="anuluj">Anuluj zamówienie</button>' : '<button type="button" class="drugorzedny" data-akcja="przywroc">Przywróć zamówienie</button>'}
           </div>`}
@@ -200,7 +201,6 @@ function htmlInpost(z, k) {
 /** Kod nadania z InPost Mobile, osoba wysyłająca i przekazanie zamówienia do grupy ZAMÓWIENIA. */
 function htmlWysylki(z) {
   return `<form data-forma="wysylka" class="wysylka">
-      <span class="etykieta">Wysyłka</span>
       <label class="pole"><span class="etykieta">Kod nadania z InPost</span>
         <input name="kod" value="${esc(z.kod_nadania || '')}" autocomplete="off" inputmode="text" placeholder="wklej kod z aplikacji InPost"></label>
       <span class="etykieta">Kto wysyła</span>
@@ -271,7 +271,8 @@ async function klik(e) {
     tresc = trescWiadomosci(z, pozycjeZamowienia(z.id));
     $('#tresc').value = tresc;
   } else if (akcja === 'oplacone') {
-    await zmienZamowienie({ status: STATUSY.oplacone }, `Zamówienie ${z.id} opłacone.`);
+    const pl = platnosciZamowienia(z).map(p => ({ ...p, zaplacone: true }));
+    await zmienZamowienie({ status: STATUSY.oplacone, platnosci: JSON.stringify(pl), zaplacono: num(z.suma_brutto) }, `Zamówienie ${z.id} opłacone.`);
   } else if (akcja === 'anuluj') {
     const tak = await okno(`${z.status === STATUSY.nowe ? 'Odrzucić' : 'Anulować'} zamówienie ${z.id}?`,
       '<p>Zamówienie zostaje w arkuszu ze statusem „anulowane” i nie liczy się w rozliczeniach. Numer nie zostanie użyty ponownie.</p>',

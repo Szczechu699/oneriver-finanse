@@ -2,8 +2,8 @@
 // grupy cenowe (np. Hurt −30%) i cennik wysyłek.
 
 import { $, esc, kwotaTxt, num, liczba, liczbaNaTekst, uuid, toast, okno } from './util.js';
-import { dane, wczytaj, aktywny, kategorieFormularza } from './dane.js';
-import { ADRES_FORMULARZA, PRZYKLADOWE_WYSYLKI } from './konfiguracja.js';
+import { dane, wczytaj, aktywny, kategorieFormularza, ustawienieTekst } from './dane.js';
+import { ADRES_FORMULARZA, PRZYKLADOWE_WYSYLKI, TRANSPORT_DOMYSLNY, SYMBOL_TRANSPORTU } from './konfiguracja.js';
 import { wywolaj, ustawienia, wersjaApi } from './api.js';
 import * as sync from './sync.js';
 
@@ -53,19 +53,6 @@ function render() {
     ${api && api < 7 ? `<p class="pasek-info blad">Skrypt arkusza ma wersję ${api}. Formularz dla klientów, wysyłki i ceny specjalne działają od wersji 7 – wklej nowy Kod.gs.</p>` : ''}
 
     <article class="panel">
-      <h2>Formularz zamówień dla klientów</h2>
-      <p>Jeden link dla wszystkich – klient widzi ceny detaliczne, a po wpisaniu swojego kodu (z karty klienta) swoje ceny.</p>
-      <p><a href="${esc(ADRES_FORMULARZA)}" target="_blank" rel="noopener">${esc(ADRES_FORMULARZA)}</a></p>
-      <div class="przyciski"><button type="button" data-akcja="kopiuj-formularz">Kopiuj link</button>
-        <a class="przycisk drugorzedny" href="${esc(ADRES_FORMULARZA)}" target="_blank" rel="noopener">Otwórz formularz</a></div>
-      <form data-forma="kategorie">
-        <span class="etykieta">Kategorie widoczne dla klientów</span>
-        <div class="kategorie-formularza">${dane.grupy.map(k => `<label class="przelacznik"><input type="checkbox" name="kat" value="${esc(k)}" ${kategorieFormularza().includes(k) ? 'checked' : ''}> ${esc(k)}</label>`).join('')}</div>
-        <div class="przyciski"><button type="submit" class="drugorzedny">Zapisz kategorie</button></div>
-      </form>
-    </article>
-
-    <article class="panel">
       <h2>Poziomy cen</h2>
       <p>Tabele cen detalicznych i hurtowych dla Rapé (rodzaj × gramatura) i Zielarni. Klientowi przypisujesz poziom w jego karcie.</p>
       <p>${dane.poziomy.filter(aktywny).length} poziomów.</p>
@@ -88,11 +75,13 @@ function render() {
     </article>
 
     <article class="panel">
-      <h2>Cennik wysyłek</h2>
-      <div id="wysylki">${htmlWysylek()}</div>
-      <span class="etykieta">Dodaj gotową metodę</span>
-      <div class="chipy">${PRZYKLADOWE_WYSYLKI.filter(w => !istniejace.has(w.nazwa)).map((w, i) => `<button type="button" class="chip" data-akcja="dodaj-wysylke" data-i="${PRZYKLADOWE_WYSYLKI.indexOf(w)}">+ ${esc(w.nazwa)}</button>`).join('')}
-        <button type="button" class="chip" data-akcja="dodaj-wysylke" data-i="-1">+ Własna metoda</button></div>
+      <h2>Transport</h2>
+      <form data-forma="transport" class="edycja-wiersza">
+        <label class="pole"><span class="etykieta">Domyślny koszt transportu (zł)</span>
+          <input name="kwota" inputmode="decimal" value="${esc(liczbaNaTekst(liczba(ustawienieTekst('transport_domyslny') || String(TRANSPORT_DOMYSLNY))))}"></label>
+        <div class="przyciski"><button type="submit">Zapisz</button></div>
+      </form>
+      <p class="podpowiedz">Przy wysyłce InPost transport jest osobną pozycją zamówienia (symbol ${esc(SYMBOL_TRANSPORTU)}) – trafi na paragon jako usługa.</p>
     </article>
   </section>`;
 }
@@ -113,6 +102,12 @@ function kwotaZPola(v) {
 
 async function submit(form) {
   const f = form.elements;
+  if (form.dataset.forma === 'transport') {
+    const k = kwotaZPola(f.kwota.value);
+    if (k === '' || Number.isNaN(k)) return toast('Wpisz kwotę transportu.', 'blad');
+    await zapiszWiersz('USTAWIENIA', { id: 'transport_domyslny', tresc: String(k), opis: 'Domyślny koszt transportu przy wysyłce (zł)' }, `Domyślny transport: ${liczbaNaTekst(k)} zł.`);
+    return;
+  }
   if (form.dataset.forma === 'kategorie') {
     const wybrane = [...form.querySelectorAll('[name=kat]:checked')].map(i => i.value);
     if (!wybrane.length) return toast('Zaznacz przynajmniej jedną kategorię.', 'blad');

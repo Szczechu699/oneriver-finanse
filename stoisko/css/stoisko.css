@@ -327,3 +327,18 @@ a.chip { display: inline-flex; align-items: center; text-decoration: none; color
 a.chip[aria-pressed="true"] { color: #fff; }
 .inny-wariant { display: block; font-size: 11.5px; color: var(--kukurydza-mocna, #B8860B); font-weight: 700; text-align: right; }
 .edycja-wiersza .przyciski { grid-column: span 2; display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ── 0.4: wysyłka InPost, płatność dzielona ── */
+.typ-sprzedazy { margin: -4px 0 14px; }
+.typ-sprzedazy .chip { min-height: 50px; padding: 10px 22px; font-size: 17px; }
+.wysylka-panel { border: 2px solid var(--kukurydza); }
+.zrzuty { cursor: pointer; background: var(--kukurydza) !important; color: #2A1F02 !important; margin-bottom: 6px; }
+.zrzuty.trwa { opacity: .7; pointer-events: none; }
+.dwa-pola { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+@media (max-width: 480px) { .dwa-pola { grid-template-columns: 1fr; } }
+.platnosc { padding: 10px 0; border-bottom: 1px solid var(--linia); }
+.platnosc .chipy { margin-bottom: 8px; }
+.platnosc-dol { display: grid; grid-template-columns: minmax(110px, 160px) 1fr auto; gap: 10px; align-items: end; }
+.platnosc-dol .przelacznik { grid-column: auto; font-size: 14.5px; }
+.znacznik-ok { color: var(--wplyw); font-weight: 700; padding-bottom: 12px; }
+.do-grupy { border: 2px solid var(--whatsapp); }

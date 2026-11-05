@@ -56,7 +56,7 @@ function render() {
   $('#widok').innerHTML = `
   <section class="ekran">
     <header class="naglowek-zam"><h1>Zamówienia</h1><a class="przycisk" href="#nowe">+ Nowe</a></header>
-    <div class="chipy male filtry">${FILTRY.map(([w, e]) => `<button type="button" class="chip" data-filtr="${w}" aria-pressed="${stan.filtr === w}">${esc(e)}${w === 'nowe' && nowe ? ` (${nowe})` : ''}</button>`).join('')}</div>
+    <div class="chipy male filtry">${FILTRY.filter(([w]) => w !== 'nowe' || nowe).map(([w, e]) => `<button type="button" class="chip" data-filtr="${w}" aria-pressed="${stan.filtr === w}">${esc(e)}${w === 'nowe' && nowe ? ` (${nowe})` : ''}</button>`).join('')}</div>
     <label class="pole szukaj"><span class="sr">Szukaj</span>
       <input type="search" id="szukaj-zam" value="${esc(stan.szukaj)}" placeholder="Numer, klient, telefon, paragon" autocomplete="off"></label>
     <div id="lista-zam">${htmlListy()}</div>

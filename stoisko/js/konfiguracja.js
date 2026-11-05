@@ -1,8 +1,12 @@
 // Stałe aplikacji stoiska. Dane do płatności są domyślne dla wszystkich urządzeń;
 // na danym urządzeniu można je zmienić w Ustawieniach.
 
-export const WERSJA = '0.3.0';
-export const WYMAGANE_API = 8;
+export const WERSJA = '0.4.0';
+export const WYMAGANE_API = 9;
+
+// Transport przy wysyłce: osobna pozycja zamówienia (na paragonie usługa) – symbol z Subiekta i domyślna kwota.
+export const SYMBOL_TRANSPORTU = 'TRANS';
+export const TRANSPORT_DOMYSLNY = 12;
 
 // Publiczny formularz zamówień dla klientów (link do wysłania klientowi).
 export const ADRES_FORMULARZA = 'https://szczechu699.github.io/oneriver-finanse/zamow/';

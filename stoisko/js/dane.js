@@ -194,6 +194,9 @@ export function opisCenKlienta(k) {
   return [...poz, g ? `grupa ${g.nazwa}` : '', r ? `rabat ${String(r).replace('.', ',')}%` : '', spec ? `${spec} cen specjalnych` : ''].filter(Boolean).join(' · ');
 }
 
+/** Wartość z karty USTAWIENIA (pusty tekst, gdy brak). */
+export const ustawienieTekst = id => dane.ustawienia.get(id) ?? '';
+
 export function kategorieFormularza() {
   const t = dane.ustawienia.get('kategorie_formularza');
   return t ? t.split('|').map(s => s.trim()).filter(Boolean) : KATEGORIE_FORMULARZA_DOMYSLNE;
@@ -213,7 +216,7 @@ export function kosztWysylki(w, wartoscProduktow) {
 // ───────────────────────── zamówienia ─────────────────────────
 
 export const pozycjeZamowienia = id => dane.pozycje
-  .filter(p => String(p.zamowienie_id) === String(id))
+  .filter(p => String(p.zamowienie_id) === String(id) && !String(p.status || '').startsWith('usuni'))
   .sort((a, b) => numerZam(a.id) - numerZam(b.id));
 
 export const zamowienie = id => dane.zamowienia.find(z => String(z.id) === String(id));

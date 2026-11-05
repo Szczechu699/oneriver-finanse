@@ -17,7 +17,9 @@ przez SMS albo WhatsApp z danymi do płatności. Zapisuje do kart ZAMOWIENIA, ZA
 Od 0.2.0: katalog z karty KATALOG (przepisywanej przez skrypt arkusza z „Cennik OneRiver”), warianty gramatur
 i rozmiarów, ceny klientów (grupa cenowa, rabat, ceny specjalne), dostawa, ekrany Klienci i Sklep (wysyłki, grupy),
 potwierdzanie zamówień z formularza. Od 0.3.0: poziomy cen detal/hurt (Rapé, Zielarnia), stany magazynowe,
-kod nadania InPost, osoba wysyłająca i przekazanie zamówienia przez Messenger/WhatsApp. Przy nowej wersji podbić WERSJA w `stoisko/sw.js` i `stoisko/js/konfiguracja.js`.
+kod nadania InPost, osoba wysyłająca i przekazanie zamówienia przez Messenger/WhatsApp. Od 0.4.0: sprzedaż na miejscu
+albo wysyłka InPost (zrzuty z InPost Mobile odczytywane w telefonie – Tesseract.js w stoisko/vendor/ocr), transport jako
+pozycja TRANS, płatność dzielona, edycja zamówień; formularz dla klientów schowany. Przy nowej wersji podbić WERSJA w `stoisko/sw.js` i `stoisko/js/konfiguracja.js`.
 
 ## Formularz zamówień dla klientów (`/zamow/`)
 

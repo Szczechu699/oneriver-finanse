@@ -16,6 +16,7 @@ import { ileDoPotwierdzenia } from './lista.js';
 const TRASY = {
   nowe: [ekranNowe, 'nowe', 'Nowe zamówienie'],
   lista: [ekranListy, 'lista', 'Zamówienia'],
+  edytuj: [ekranNowe, 'lista', 'Edycja zamówienia'],
   zamowienie: [ekranZamowienia, 'lista', 'Zamówienie'],
   klienci: [ekranKlientow, 'klienci', 'Klienci'],
   klient: [ekranKlientow, 'klienci', 'Klient'],
