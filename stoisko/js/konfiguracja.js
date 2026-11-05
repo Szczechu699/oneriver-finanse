@@ -1,11 +1,13 @@
 // Stałe aplikacji stoiska. Dane do płatności są domyślne dla wszystkich urządzeń;
 // na danym urządzeniu można je zmienić w Ustawieniach.
 
-export const WERSJA = '0.4.5';
+export const WERSJA = '0.4.6';
 export const WYMAGANE_API = 9;
 
 // Transport przy wysyłce: osobna pozycja zamówienia (na paragonie usługa) – symbol z Subiekta i domyślna kwota.
-export const SYMBOL_TRANSPORTU = 'TRANS';
+export const SYMBOL_TRANSPORTU = 'TRAN';
+// Starsze zamówienia (do 0.4.5) miały transport pod symbolem TRANS.
+export const czyTransport = symbol => symbol === 'TRAN' || symbol === 'TRANS';
 export const TRANSPORT_DOMYSLNY = 12;
 
 // Publiczny formularz zamówień dla klientów (link do wysłania klientowi).

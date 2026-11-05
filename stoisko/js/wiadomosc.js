@@ -2,12 +2,12 @@
 // Wiadomość wysyła sprzedawca z telefonu – SMS działa także bez internetu (przez sieć komórkową).
 
 import { ustawienia } from './api.js';
-import { PLATNE_POZNIEJ, SYMBOL_TRANSPORTU } from './konfiguracja.js';
+import { PLATNE_POZNIEJ, czyTransport } from './konfiguracja.js';
 import { kwotaTxt, iloscTxt, num } from './util.js';
 import { telefonE164 } from './dane.js';
 
 const MAKS_POZYCJI = 8;
-const produkty = pozycje => pozycje.filter(p => p.symbol !== SYMBOL_TRANSPORTU);
+const produkty = pozycje => pozycje.filter(p => !czyTransport(p.symbol));
 
 /** Płatności zamówienia: z kolumny „platnosci” (JSON), a dla starszych zamówień – z formy płatności i statusu. */
 export function platnosciZamowienia(zam) {

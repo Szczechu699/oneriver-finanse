@@ -8,7 +8,7 @@ import { $, $$, esc, zaokr, kwotaTxt, iloscTxt, liczba, liczbaNaTekst, uuid, dat
 import { dane, wczytaj, szukajProduktow, nastepnyNumer, zapamietajNumer, klientPoTelefonie, telefonE164, klient as klientId,
   produktSymbolu, cenaKlienta, opisCenKlienta, zamowienie, pozycjeZamowienia, ustawienieTekst } from './dane.js';
 import { ustawienia, gotowe } from './api.js';
-import { FORMY, STATUSY, OSOBY_WYSYLKI, SYMBOL_TRANSPORTU, TRANSPORT_DOMYSLNY } from './konfiguracja.js';
+import { FORMY, STATUSY, OSOBY_WYSYLKI, SYMBOL_TRANSPORTU, TRANSPORT_DOMYSLNY, czyTransport } from './konfiguracja.js';
 import { rozpoznaj } from './inpost.js';
 import * as sync from './sync.js';
 
@@ -512,14 +512,14 @@ function zaladujDoEdycji(id) {
   if (!z) return false;
   const poz = pozycjeZamowienia(z.id);
   const k = klientId(z.klient_id);
-  const trans = poz.find(p => p.symbol === SYMBOL_TRANSPORTU);
+  const trans = poz.find(p => czyTransport(p.symbol));
   let platnosci = [];
   try { platnosci = JSON.parse(z.platnosci || '[]'); } catch { /* starsze zamówienie */ }
   if (!platnosci.length) platnosci = [{ forma: ['Mieszana', ''].includes(z.forma_platnosci) ? 'Przelew' : z.forma_platnosci, kwota: num(z.suma_brutto), zaplacone: z.status === STATUSY.oplacone }];
   const [paczkomat, ...resztaAdresu] = /^[A-Z]{3}[A-Z0-9]{2,9}(,|$)/.test(String(z.adres_dostawy || '')) ? String(z.adres_dostawy).split(/,\s*/) : ['', z.adres_dostawy || ''];
   s = {
     ...pusty(), tryb: 'edycja', edytowane: z.id, typ: z.typ === 'wysylka' || trans || z.dostawa ? 'wysylka' : 'miejsce',
-    koszyk: poz.filter(p => p.symbol !== SYMBOL_TRANSPORTU).map(p => ({
+    koszyk: poz.filter(p => !czyTransport(p.symbol)).map(p => ({
       k: uuid(), posId: p.id, symbol: p.symbol || '', nazwa: p.nazwa, grupa: p.kategoria || '', jm: p.jm || 'szt.',
       cena_cennik: p.cena_cennik === '' ? '' : num(p.cena_cennik), iloscTxt: liczbaNaTekst(num(p.ilosc)),
       cenaTxt: p.symbol && p.cena_cennik !== '' && num(p.cena) === cenaKlienta(k, p.symbol, num(p.cena_cennik)) ? '' : liczbaNaTekst(num(p.cena)),

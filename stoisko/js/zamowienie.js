@@ -4,7 +4,7 @@
 
 import { $, $$, esc, kwotaTxt, iloscTxt, num, zaokr, liczba, liczbaNaTekst, dataKrotko, toast, okno } from './util.js';
 import { wczytaj, zamowienie, pozycjeZamowienia, klient, telefonE164, telefonCzytelny, opisCenKlienta } from './dane.js';
-import { STATUSY, PLATNE_POZNIEJ, FORMY, ETYKIETY_STATUSOW, OSOBY_WYSYLKI, SYMBOL_TRANSPORTU } from './konfiguracja.js';
+import { STATUSY, PLATNE_POZNIEJ, FORMY, ETYKIETY_STATUSOW, OSOBY_WYSYLKI, czyTransport } from './konfiguracja.js';
 import { ustawienia } from './api.js';
 import { trescWiadomosci, trescDlaWysylki, linkSms, linkWhatsApp, linkWhatsAppDoGrupy, otworzLink, platnosciZamowienia } from './wiadomosc.js';
 import { dataLok } from './util.js';
@@ -140,7 +140,7 @@ function render(arg) {
       <div>
         ${nowe ? '' : `<article class="panel">
           <h2>Pozycje</h2>
-          <table class="tabela"><tbody>${poz.filter(p => p.symbol !== SYMBOL_TRANSPORTU).map(p => `<tr>
+          <table class="tabela"><tbody>${poz.filter(p => !czyTransport(p.symbol)).map(p => `<tr>
               <td>${esc(p.nazwa)}${p.symbol ? `<small>${esc(p.symbol)}</small>` : ''}</td>
               <td class="liczba">${esc(iloscTxt(num(p.ilosc)))} × ${esc(kwotaTxt(num(p.cena)))}${String(p.cena_reczna) === 'true' && p.cena_cennik !== '' ? `<small>cennik ${esc(kwotaTxt(num(p.cena_cennik)))}</small>` : ''}</td>
               <td class="liczba"><b>${esc(kwotaTxt(num(p.wartosc)))}</b></td></tr>`).join('')}
