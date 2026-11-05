@@ -5,6 +5,7 @@
 import { $, $$, esc, kwotaTxt, iloscTxt, num, zaokr, liczba, liczbaNaTekst, dataKrotko, toast, okno } from './util.js';
 import { wczytaj, zamowienie, pozycjeZamowienia, klient, telefonE164, telefonCzytelny, opisCenKlienta } from './dane.js';
 import { STATUSY, PLATNE_POZNIEJ, FORMY, ETYKIETY_STATUSOW, OSOBY_WYSYLKI, czyTransport } from './konfiguracja.js';
+import { eksportujEpp } from './eksport-epp.js';
 import { ustawienia } from './api.js';
 import { trescWiadomosci, trescDlaWysylki, linkSms, linkWhatsApp, linkWhatsAppDoGrupy, otworzLink, platnosciZamowienia } from './wiadomosc.js';
 import { dataLok } from './util.js';
@@ -166,6 +167,8 @@ function render(arg) {
               <span class="z-przyciskiem"><input name="nr" value="${esc(z.nr_dok_sgt || '')}" placeholder="np. PA 123/11/2026" autocomplete="off">
               <button type="submit" class="drugorzedny">Zapisz</button></span></label>
           </form>
+          ${!anulowane ? `<p class="podpowiedz">${z.epp_eksport ? `Plik EPP pobrany ${esc(dataKrotko(String(z.epp_eksport).slice(0, 10)))}.` : 'Paragon do Subiekta: pobierz plik EPP i wczytaj go w Subiekcie (Operacje → Odbierz z… → Plik EDI++).'}
+            <button type="button" class="link" data-akcja="epp">${z.epp_eksport ? 'Pobierz ponownie' : 'Pobierz plik EPP'}</button></p>` : ''}
           <div class="przyciski">
             ${!anulowane ? `<a class="przycisk" href="#edytuj/${encodeURIComponent(z.id)}">Edytuj zamówienie</a>` : ''}
             ${z.status === STATUSY.czeka ? '<button type="button" data-akcja="oplacone">Oznacz jako opłacone</button>' : ''}
@@ -256,6 +259,14 @@ async function klik(e) {
   const tel = telefonE164(klient(z?.klient_id)?.telefon);
   const akcja = b.dataset.akcja;
   if (akcja === 'sms' || akcja === 'wa') otworz(akcja, tel);
+  if (akcja === 'epp') {
+    try {
+      const w = await eksportujEpp([z.id]);
+      if (w.bledy.length) toast(w.bledy.join(' '), 'blad', 8000);
+      else { await wczytaj(); toast(`Pobrano plik EPP dla ${z.id}.`, 'ok'); render(biezace); }
+    } catch (err) { toast('Nie udało się utworzyć pliku: ' + err.message, 'blad'); }
+    return;
+  }
   else if (akcja === 'potwierdz') await potwierdz(b.dataset.kanal, b);
   else if (akcja === 'kopiuj-pole') {
     try { await navigator.clipboard.writeText(b.dataset.tekst); toast(`Skopiowano: ${b.dataset.tekst}`, 'ok', 2000); }

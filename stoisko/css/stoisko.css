@@ -195,7 +195,7 @@ button[type=submit], .przycisk, .przyciski button, .zatwierdz button, .szeroki {
 .wskazniki span { display: block; color: var(--szary); font-size: 14.5px; }
 .wskazniki b { font-family: var(--font-liczby); font-size: 24px; }
 .lista-zam { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.lista-zam a {
+.lista-zam a, .lista-zam .lz-wybierz {
   display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center;
   padding: 12px 14px; background: var(--papier); border: 1px solid var(--linia); border-radius: var(--r);
   color: inherit; text-decoration: none;
@@ -208,7 +208,18 @@ button[type=submit], .przycisk, .przyciski button, .zatwierdz button, .szeroki {
 @media (max-width: 520px) {
   .lista-zam a { grid-template-columns: 1fr auto; }
   .lz-numer { grid-column: 1 / -1; }
+  .lista-zam .lz-wybierz { grid-template-columns: auto 1fr auto; }
+  .lz-wybierz .lz-numer { grid-column: 2 / -1; }
+  .lz-wybierz .lz-klient { grid-column: 1 / 3; }
 }
+.lista-zam .lz-wybierz { grid-template-columns: auto auto 1fr auto; cursor: pointer; }
+.lz-wybierz input { width: 22px; height: 22px; accent-color: var(--rzeka-ciemna); margin: 0; }
+.lz-wybierz:has(input:checked) { border-color: var(--rzeka-ciemna); box-shadow: inset 0 0 0 1px var(--rzeka-ciemna); }
+.lz-wybierz:has(input:disabled) { opacity: .5; }
+.pasek-epp { margin-bottom: 12px; }
+.pasek-epp p { margin: 0 0 8px; }
+.pasek-epp .przyciski { display: flex; flex-wrap: wrap; gap: 8px; }
+.naglowek-zam .naglowek-akcje { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
 
 /* ustawienia */
 .ustawienia { max-width: 680px; margin: 0 auto; }

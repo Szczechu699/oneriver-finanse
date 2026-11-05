@@ -60,7 +60,7 @@ export function trescEpp(firma, dokumenty, teraz = new Date(), stronaKodowa = 12
 
   const towary = new Map(), kontrahenci = new Map();
   for (const d of dokumenty) {
-    const pelny = d.rozszerzenie ? `${d.numer}/${d.rozszerzenie}/${new Date(d.data).getFullYear()}` : `${d.numer}/${new Date(d.data).getFullYear()}`;
+    const pelny = d.pelnyNumer || (d.rozszerzenie ? `${d.numer}/${d.rozszerzenie}/${new Date(d.data).getFullYear()}` : `${d.numer}/${new Date(d.data).getFullYear()}`);
     d._pelny = pelny;
     const poz = d.pozycje.map((p, i) => {
       const brutto = zl(p.cena * p.ilosc), netto = zl(brutto / (1 + p.vat / 100));

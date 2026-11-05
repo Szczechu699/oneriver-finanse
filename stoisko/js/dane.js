@@ -104,6 +104,7 @@ function zbudujCennik(katalog, dokumenty, pozycje) {
     dane.cennik = aktywne.map(w => ({
       symbol: String(w.id), nazwa: String(w.nazwa), produkt: String(w.produkt || w.nazwa), wariant: String(w.wariant || ''),
       kategoria: String(w.kategoria || 'Inne'), jm: String(w.jm || 'szt.'), cena: num(w.cena), zdjecie: String(w.zdjecie || ''),
+      rodzaj: String(w.rodzaj || ''), grupa: String(w.grupa || ''),
       ukryty: prawda(w.ukryty), sprzedano: sprzedaz.get(String(w.id))?.sprzedano || 0,
       stan: w.stan === '' || w.stan == null ? null : num(w.stan),
     }));
