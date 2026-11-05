@@ -3,7 +3,7 @@
   "short_name": "OR Stoisko",
   "description": "Rejestr sprzedaży ONE RIVER na stoisku, także bez internetu.",
   "lang": "pl",
-  "id": "./",
+  "id": "/oneriver-finanse/stoisko/",
   "start_url": "./#nowe",
   "scope": "./",
   "display": "standalone",

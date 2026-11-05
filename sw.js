@@ -1,6 +1,6 @@
 // Service worker: trzyma pliki aplikacji w pamięci urządzenia, żeby działała bez internetu.
 // Przy każdej nowej wersji aplikacji zmień WERSJA.
-const WERSJA = 'or-finanse-0.14.0-m3';
+const WERSJA = 'or-finanse-0.14.0-m4';
 const PLIKI = [
   './', './index.html', './css/app.css',
   './js/app.js', './js/db.js', './js/api.js', './js/sync.js',
@@ -38,6 +38,11 @@ self.addEventListener('fetch', e => {
   }
 
   if (url.origin !== self.location.origin) return;
+  // manifest zawsze z sieci (gdy jest internet) – telefon musi widzieć aktualny identyfikator i zakres aplikacji
+  if (url.pathname.endsWith('/manifest.webmanifest') && !url.pathname.includes('/stoisko/')) {
+    e.respondWith(fetch(req).catch(() => caches.match(req, { ignoreSearch: true })));
+    return;
+  }
   // aplikacja stoiska (własny service worker) i formularz zamówień dla klientów – nie obsługujemy ich stron i plików
   if (url.pathname.includes('/stoisko/') || url.pathname.includes('/zamow/')) return;
 

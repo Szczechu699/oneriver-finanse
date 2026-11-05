@@ -1,6 +1,6 @@
 // Service worker stoiska: trzyma pliki aplikacji w pamięci urządzenia, żeby działała bez internetu.
 // Przy każdej nowej wersji zmień WERSJA (i WERSJA w js/konfiguracja.js).
-const WERSJA = 'or-stoisko-0.5.0';
+const WERSJA = 'or-stoisko-0.5.1';
 const OCR = 'or-stoisko-ocr';   // pliki rozpoznawania tekstu – pobierane przy pierwszym użyciu, potem z pamięci
 const PLIKI = [
   './', './index.html', './css/stoisko.css', './manifest.webmanifest',
@@ -37,6 +37,11 @@ self.addEventListener('fetch', e => {
   }
 
   if (url.origin !== self.location.origin) return;
+  // manifest zawsze z sieci (gdy jest internet) – telefon musi widzieć aktualny identyfikator i zakres aplikacji
+  if (url.pathname.endsWith('/manifest.webmanifest')) {
+    e.respondWith(fetch(req).catch(() => caches.open(WERSJA).then(c => c.match(req, { ignoreSearch: true }))));
+    return;
+  }
   if (url.pathname.includes('/vendor/ocr/')) {
     e.respondWith(caches.open(OCR).then(async c => {
       const z = await c.match(req, { ignoreSearch: true });
