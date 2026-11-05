@@ -183,7 +183,7 @@ button[type=submit], .przycisk, .przyciski button, .zatwierdz button, .szeroki {
   .poz-wartosc { grid-column: 1 / -1; text-align: right; padding: 0; }
 }
 .suma { display: flex; justify-content: space-between; align-items: baseline; padding-top: 14px; font-size: 18px; }
-.suma b { font-family: var(--font-liczby); font-size: 32px; font-variant-numeric: tabular-nums; }
+.suma b { font-family: var(--font-liczby); font-size: 32px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 .zatwierdz { display: grid; gap: 10px; margin-bottom: 16px; }
 .zatwierdz .glowny { background: var(--kukurydza); color: #2A1F02; font-size: 18px; min-height: 58px; }

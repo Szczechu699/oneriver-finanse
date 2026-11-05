@@ -11,6 +11,9 @@ function poprawEmail(t) {
   // „@” bywa odczytane jako „Q”, „Qa”, „©”, „G” – szukamy znanej domeny i wstawiamy „@” przed nią
   const m = new RegExp(`^(.+?)(?:Qa|@a|Q|©|@|G|\\(a\\)|a)?((?:${DOMENY})\\.[a-z.]{2,})$`, 'i').exec(s);
   if (m) return (m[1] + '@' + m[2]).toLowerCase();
+  // Nieznana domena: ostatnie „q/Q/©” przed „domena.pl” traktujemy jako „@” (do sprawdzenia przez Ciebie)
+  const g = /^(.+)[qQ©]([a-z0-9-]+\.[a-z]{2,})$/.exec(s);
+  if (g && !s.includes('@')) return (g[1] + '@' + g[2]).toLowerCase();
   return s.toLowerCase();
 }
 

@@ -159,9 +159,9 @@ function htmlWysylki() {
     <header><h2>Wysyłka InPost</h2></header>
     <label class="przycisk szeroki zrzuty${ocrTrwa ? ' trwa' : ''}">
       <input type="file" accept="image/*" multiple data-pole="zrzuty" hidden>
-      <span id="ocr-opis">${ocrTrwa ? 'Odczytuję…' : 'Wczytaj zrzuty z InPost (dane odbiorcy i szczegóły przesyłki)'}</span>
+      <span id="ocr-opis">${ocrTrwa ? 'Odczytuję…' : 'Wczytaj 2 zrzuty z InPost: odbiorca + etykieta'}</span>
     </label>
-    <p class="podpowiedz">Dane z obrazka wpisują się w pola poniżej i w dane klienta – sprawdź je przed zapisem.
+    <p class="podpowiedz">Zaznacz oba zrzuty naraz: 1) ekran z zapisanym odbiorcą (imię, nazwisko, telefon, e-mail, paczkomat), 2) etykietę – „Szczegóły przesyłki” (nr przesyłki, kod nadania). Dane wpiszą się w pola poniżej i w dane klienta – sprawdź je przed zapisem.
       <button type="button" class="link" data-akcja="wyczysc-wysylke">Wyczyść dane wysyłki i klienta</button></p>
     <label class="pole"><span class="etykieta">Paczkomat</span>
       <input data-pole="paczkomat" autocomplete="off" autocapitalize="characters" value="${esc(s.paczkomat)}" placeholder="np. WAWR01BAPP (puste = kurier)"></label>
