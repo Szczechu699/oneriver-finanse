@@ -42,7 +42,7 @@ function htmlListy() {
       const k = klient(z.klient_id);
       return `<li><a href="#zamowienie/${encodeURIComponent(z.id)}">
         <span class="lz-numer">${esc(z.id)}${czekajace.has('ZAMOWIENIA|' + z.id) ? ' <i class="do-wyslania" title="Czeka na wysłanie do arkusza">●</i>' : ''}</span>
-        <span class="lz-klient">${esc(k?.nazwa || (k ? telefonCzytelny(k.telefon) : 'bez klienta'))}<small>${esc(dataKrotko(z.data))} · ${esc(z.forma_platnosci || '')}${z.wydarzenie ? ' · ' + esc(z.wydarzenie) : ''}</small></span>
+        <span class="lz-klient">${esc(k?.nazwa || (k ? telefonCzytelny(k.telefon) : 'bez klienta'))}<small>${esc(dataKrotko(z.data))} · ${esc(z.forma_platnosci || '')}${z.wydarzenie ? ' · ' + esc(z.wydarzenie) : ''}${z.dostawa ? ' · ' + (z.nadano ? `wysyła ${esc(z.realizuje || '')}` : 'do wysłania') : ''}</small></span>
         <span class="lz-kwota"><b>${esc(kwotaTxt(num(z.suma_brutto)))}</b><span class="status ${klasaStatusu(z.status)}">${esc(etykietaStatusu(z.status))}</span></span>
       </a></li>`;
     }).join('')}</ul>`;

@@ -292,3 +292,38 @@ dialog::backdrop { background: rgb(0 0 0 / .45); }
 .przelacznik { display: flex; align-items: center; gap: 8px; min-height: 44px; font-size: 15px; grid-column: span 2; }
 .przelacznik input { width: 22px; height: 22px; accent-color: var(--rzeka); }
 @media (max-width: 520px) { .edycja-wiersza .szeroka, .przelacznik { grid-column: 1 / -1; } }
+
+/* ── 0.3: poziomy cen, stany, InPost ── */
+.wariant.brak { opacity: .55; border-style: dashed; }
+.wariant.brak b { text-decoration: line-through; text-decoration-thickness: 1px; }
+.przewijana { overflow-x: auto; margin: 0 -6px; padding: 0 6px; }
+.macierz { border-collapse: separate; border-spacing: 0; width: 100%; font-variant-numeric: tabular-nums; }
+.macierz th, .macierz td { padding: 6px 6px; border-bottom: 1px solid var(--linia); text-align: right; white-space: nowrap; }
+.macierz thead th { font-size: 13.5px; color: var(--szary); position: sticky; top: 0; background: var(--papier); }
+.macierz tbody th { text-align: left; font-weight: 700; position: sticky; left: 0; background: var(--papier); z-index: 1; max-width: 190px; overflow: hidden; text-overflow: ellipsis; }
+.macierz input { width: 92px; min-height: 42px; padding: 6px 8px; text-align: right; }
+.macierz input.zmienione { border-color: var(--kukurydza); background: color-mix(in srgb, var(--kukurydza) 12%, var(--papier)); }
+.macierz .brak { color: var(--szary); text-align: center; }
+.macierz .grupa-kol { text-align: center; border-left: 2px solid var(--linia); color: var(--atrament); }
+.porownanie td.katalog { color: var(--szary); border-left: 2px solid var(--linia); }
+.szybkie { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.szybkie li { display: grid; grid-template-columns: 1fr 110px auto; gap: 8px; align-items: center; }
+.szybkie input { min-height: 44px; }
+.szybkie button { min-height: 44px; padding: 6px 14px; border-radius: var(--r); font-weight: 700; }
+@media (max-width: 480px) { .szybkie li { grid-template-columns: 1fr 90px; } .szybkie button { grid-column: 1 / -1; } }
+.kategorie-formularza { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0 12px; margin: 6px 0 4px; }
+.inpost { margin: 0 0 14px; padding: 12px; border: 1.5px dashed var(--kukurydza); border-radius: var(--r); }
+.kopiuj-pola { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+.kopiuj-pola button { display: flex; flex-direction: column; align-items: flex-start; gap: 0; min-height: 52px; padding: 8px 12px; border-radius: var(--r); text-align: left; overflow-wrap: anywhere; font-weight: 700; }
+.kopiuj-pola small { font-weight: 400; color: var(--szary); font-size: 12.5px; }
+.wysylka { margin: 0 0 14px; padding: 12px; border: 1.5px solid var(--linia); border-radius: var(--r); background: var(--papier-2); }
+.chip-radio { position: relative; }
+.chip-radio input { position: absolute; opacity: 0; inset: 0; }
+.chip-radio span { display: inline-flex; align-items: center; min-height: 46px; padding: 8px 18px; border-radius: 999px; border: 1.5px solid var(--linia); background: var(--papier); cursor: pointer; }
+.chip-radio input:checked + span { background: var(--rzeka); border-color: var(--rzeka); color: #fff; font-weight: 700; }
+.chip-radio input:focus-visible + span { outline: 3px solid var(--kukurydza); outline-offset: 2px; }
+.wysylka .przyciski .whatsapp { background: var(--whatsapp); }
+a.chip { display: inline-flex; align-items: center; text-decoration: none; color: inherit; }
+a.chip[aria-pressed="true"] { color: #fff; }
+.inny-wariant { display: block; font-size: 11.5px; color: var(--kukurydza-mocna, #B8860B); font-weight: 700; text-align: right; }
+.edycja-wiersza .przyciski { grid-column: span 2; display: flex; gap: 8px; flex-wrap: wrap; }

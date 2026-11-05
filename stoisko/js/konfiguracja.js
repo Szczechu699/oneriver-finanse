@@ -1,8 +1,8 @@
 // Stałe aplikacji stoiska. Dane do płatności są domyślne dla wszystkich urządzeń;
 // na danym urządzeniu można je zmienić w Ustawieniach.
 
-export const WERSJA = '0.2.0';
-export const WYMAGANE_API = 7;
+export const WERSJA = '0.3.0';
+export const WYMAGANE_API = 8;
 
 // Publiczny formularz zamówień dla klientów (link do wysłania klientowi).
 export const ADRES_FORMULARZA = 'https://szczechu699.github.io/oneriver-finanse/zamow/';
@@ -32,7 +32,15 @@ export const STATUSY = {
 
 export const PODMIOTY = ['INCO', 'OFI'];
 
+// Kto realizuje wysyłkę zamówień (wybór przy zamówieniu; trafia do kolumny ZAMOWIENIA.realizuje).
+export const OSOBY_WYSYLKI = ['Olek', 'Grażynka'];
+
 export const ETYKIETY_STATUSOW = { nowe: 'do potwierdzenia' };
+
+// Grupy produktów z poziomami cen: kategoria katalogu → grupa (kolumna KLIENCI.poziom_<grupa>).
+export const GRUPY_POZIOMOW = { 'Rapé': 'rape', 'Zielarnia i olejki': 'zielarnia' };
+export const NAZWY_GRUP_POZIOMOW = { rape: 'Rapé', zielarnia: 'Zielarnia i olejki' };
+export const KATEGORIE_FORMULARZA_DOMYSLNE = ['Rapé', 'Akcesoria do rapé', 'Zielarnia i olejki'];
 
 // Kolejność kategorii jak w sklepie oneriver.pl.
 export const KOLEJNOSC_KATEGORII = ['Rapé', 'Akcesoria do rapé', 'Zielarnia i olejki', 'Biżuteria', 'Odzież', 'Wystrój wnętrz i inne', 'Instrumenty etniczne'];

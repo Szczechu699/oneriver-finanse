@@ -4,9 +4,10 @@
 
 import { $, $$, esc, kwotaTxt, iloscTxt, num, zaokr, liczba, liczbaNaTekst, dataKrotko, toast, okno } from './util.js';
 import { wczytaj, zamowienie, pozycjeZamowienia, klient, telefonE164, telefonCzytelny, opisCenKlienta } from './dane.js';
-import { STATUSY, PLATNE_POZNIEJ, FORMY, ETYKIETY_STATUSOW } from './konfiguracja.js';
+import { STATUSY, PLATNE_POZNIEJ, FORMY, ETYKIETY_STATUSOW, OSOBY_WYSYLKI } from './konfiguracja.js';
 import { ustawienia } from './api.js';
-import { trescWiadomosci, linkSms, linkWhatsApp, otworzLink } from './wiadomosc.js';
+import { trescWiadomosci, trescDlaWysylki, linkSms, linkWhatsApp, linkWhatsAppDoGrupy, otworzLink } from './wiadomosc.js';
+import { dataLok } from './util.js';
 import * as sync from './sync.js';
 
 let biezace = null;   // id zamówienia na ekranie
@@ -153,6 +154,10 @@ function render(arg) {
             <div><dt>Klient</dt><dd>${k ? `<a href="#klient/${encodeURIComponent(k.id)}">${esc([k.nazwa, telefonCzytelny(k.telefon), k.email].filter(Boolean).join(' · '))}</a>` : '—'}</dd></div>
             <div><dt>Płatność</dt><dd>${esc(z.forma_platnosci || '')}</dd></div>
             ${z.dostawa ? `<div><dt>Dostawa</dt><dd>${esc(z.dostawa)}${z.adres_dostawy ? '<br>' + esc(z.adres_dostawy) : ''}</dd></div>` : ''}
+          </dl>
+          ${z.dostawa && !anulowane ? htmlInpost(z, k) : ''}
+          ${z.dostawa && !anulowane && !nowe ? htmlWysylki(z) : ''}
+          <dl class="info">
             <div><dt>Wydarzenie</dt><dd>${esc([z.wydarzenie, z.magazyn, z.podmiot].filter(Boolean).join(' · ') || '—')}</dd></div>
             ${z.uwagi ? `<div><dt>Uwagi</dt><dd>${esc(z.uwagi)}</dd></div>` : ''}
           </dl>
@@ -179,6 +184,58 @@ function render(arg) {
   }
 }
 
+/** Dane do nadania paczki w aplikacji InPost Mobile – każde pole osobno do skopiowania. */
+function htmlInpost(z, k) {
+  const tel = telefonE164(k?.telefon);
+  const pola = [
+    ['Odbiorca', k?.nazwa || ''],
+    ['Telefon', tel.startsWith('+48') ? tel.slice(3) : tel],
+    ['E-mail', k?.email || ''],
+    [/paczkomat/i.test(z.dostawa) ? 'Paczkomat' : 'Adres', z.adres_dostawy || ''],
+  ].filter(([, v]) => v);
+  return `<div class="inpost"><span class="etykieta">Nadanie w InPost Mobile – dotknij, żeby skopiować</span>
+    <div class="kopiuj-pola">${pola.map(([n, v]) => `<button type="button" class="drugorzedny" data-akcja="kopiuj-pole" data-tekst="${esc(v)}"><small>${esc(n)}</small>${esc(v)}</button>`).join('')}</div></div>`;
+}
+
+/** Kod nadania z InPost Mobile, osoba wysyłająca i przekazanie zamówienia do grupy ZAMÓWIENIA. */
+function htmlWysylki(z) {
+  return `<form data-forma="wysylka" class="wysylka">
+      <span class="etykieta">Wysyłka</span>
+      <label class="pole"><span class="etykieta">Kod nadania z InPost</span>
+        <input name="kod" value="${esc(z.kod_nadania || '')}" autocomplete="off" inputmode="text" placeholder="wklej kod z aplikacji InPost"></label>
+      <span class="etykieta">Kto wysyła</span>
+      <div class="chipy">${OSOBY_WYSYLKI.map(o => `<label class="chip-radio"><input type="radio" name="kto" value="${esc(o)}" ${z.realizuje === o ? 'checked' : ''}><span>${esc(o)}</span></label>`).join('')}</div>
+      <div class="przyciski">
+        <button type="submit" data-kanal="udostepnij">Zapisz i wyślij na Messenger</button>
+        <button type="submit" data-kanal="wa-grupa" class="whatsapp">Zapisz i wyślij na WhatsApp</button>
+      </div>
+      ${z.nadano ? `<p class="podpowiedz">Przekazano do wysyłki: ${esc(z.realizuje || '')}, ${esc(dataKrotko(z.nadano))}.</p>` : ''}
+    </form>`;
+}
+
+async function przekazWysylke(form, kanal) {
+  const z = zamowienie(biezace);
+  const kod = form.elements.kod.value.trim();
+  const kto = form.querySelector('[name=kto]:checked')?.value || '';
+  if (!kto) { toast('Wybierz, kto wysyła.', 'blad'); return; }
+  if (!kod && !(await okno('Bez kodu nadania?', '<p>Kod z aplikacji InPost nie jest wpisany. Wysłać wiadomość bez niego?</p>',
+    [{ etykieta: 'Wpiszę kod', wartosc: false, klasa: 'drugorzedny', autofocus: true }, { etykieta: 'Wyślij bez kodu', wartosc: true }]))) return;
+  const nowy = { ...z, kod_nadania: kod, realizuje: kto, nadano: z.nadano || dataLok() };
+  const tekst = trescDlaWysylki(nowy, pozycjeZamowienia(z.id), klient(z.klient_id));
+  // najpierw udostępnienie (przeglądarka pozwala na nie tylko zaraz po dotknięciu), potem zapis
+  if (kanal === 'udostepnij' && navigator.share) {
+    try { await navigator.share({ text: tekst }); } catch (e) { if (e.name !== 'AbortError') toast('Nie udało się udostępnić – tekst skopiowany.', 'blad'); }
+  } else if (kanal === 'udostepnij') {
+    try { await navigator.clipboard.writeText(tekst); } catch { /* bez schowka */ }
+    toast('Tekst skopiowany – wklej go w grupie ZAMÓWIENIA na Messengerze.', 'ok', 6000);
+  } else {
+    otworzLink(linkWhatsAppDoGrupy(tekst));
+  }
+  await sync.zapisz([{ karta: 'ZAMOWIENIA', wiersze: [nowy] }]);
+  await wczytaj();
+  render(z.id);
+}
+
 function otworz(kanal, tel) {
   otworzLink(kanal === 'wa' ? linkWhatsApp(tel, tresc) : linkSms(tel, tresc));
 }
@@ -200,6 +257,10 @@ async function klik(e) {
   const akcja = b.dataset.akcja;
   if (akcja === 'sms' || akcja === 'wa') otworz(akcja, tel);
   else if (akcja === 'potwierdz') await potwierdz(b.dataset.kanal, b);
+  else if (akcja === 'kopiuj-pole') {
+    try { await navigator.clipboard.writeText(b.dataset.tekst); toast(`Skopiowano: ${b.dataset.tekst}`, 'ok', 2000); }
+    catch { toast(b.dataset.tekst, '', 6000); }
+  }
   else if (akcja === 'forma-ed') {
     edycja.forma = b.dataset.forma;
     $$('[data-akcja="forma-ed"]').forEach(c => c.setAttribute('aria-pressed', String(c.dataset.forma === edycja.forma)));
@@ -241,7 +302,8 @@ function wejscie(e) {
   $('#suma-ed').textContent = isFinite(s) ? kwotaTxt(s) : '—';
 }
 
-async function submit(form) {
+async function submit(form, e) {
+  if (form.dataset.forma === 'wysylka') { await przekazWysylke(form, e?.submitter?.dataset.kanal || 'udostepnij'); return; }
   if (form.dataset.forma !== 'paragon') return;
   const nr = form.elements.nr.value.trim();
   const z = zamowienie(biezace);

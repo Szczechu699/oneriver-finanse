@@ -2,7 +2,7 @@
 // grupy cenowe (np. Hurt −30%) i cennik wysyłek.
 
 import { $, esc, kwotaTxt, num, liczba, liczbaNaTekst, uuid, toast, okno } from './util.js';
-import { dane, wczytaj, aktywny } from './dane.js';
+import { dane, wczytaj, aktywny, kategorieFormularza } from './dane.js';
 import { ADRES_FORMULARZA, PRZYKLADOWE_WYSYLKI } from './konfiguracja.js';
 import { wywolaj, ustawienia, wersjaApi } from './api.js';
 import * as sync from './sync.js';
@@ -58,6 +58,18 @@ function render() {
       <p><a href="${esc(ADRES_FORMULARZA)}" target="_blank" rel="noopener">${esc(ADRES_FORMULARZA)}</a></p>
       <div class="przyciski"><button type="button" data-akcja="kopiuj-formularz">Kopiuj link</button>
         <a class="przycisk drugorzedny" href="${esc(ADRES_FORMULARZA)}" target="_blank" rel="noopener">Otwórz formularz</a></div>
+      <form data-forma="kategorie">
+        <span class="etykieta">Kategorie widoczne dla klientów</span>
+        <div class="kategorie-formularza">${dane.grupy.map(k => `<label class="przelacznik"><input type="checkbox" name="kat" value="${esc(k)}" ${kategorieFormularza().includes(k) ? 'checked' : ''}> ${esc(k)}</label>`).join('')}</div>
+        <div class="przyciski"><button type="submit" class="drugorzedny">Zapisz kategorie</button></div>
+      </form>
+    </article>
+
+    <article class="panel">
+      <h2>Poziomy cen</h2>
+      <p>Tabele cen detalicznych i hurtowych dla Rapé (rodzaj × gramatura) i Zielarni. Klientowi przypisujesz poziom w jego karcie.</p>
+      <p>${dane.poziomy.filter(aktywny).length} poziomów.</p>
+      <div class="przyciski"><a class="przycisk" href="#poziomy/rape">Poziomy Rapé</a><a class="przycisk drugorzedny" href="#poziomy/zielarnia">Poziomy Zielarni</a></div>
     </article>
 
     <article class="panel">
@@ -65,6 +77,7 @@ function render() {
       <p>${dane.zKatalogu
         ? `${kat} pozycji w ${produktow} produktach (warianty gramatur i rozmiarów razem)${zZdj ? `, ${zZdj} ze zdjęciem ze sklepu` : ''}. Źródło: arkusz „Cennik OneRiver” (Subiekt), odświeżany co godzinę.`
         : 'Katalog jeszcze nie został pobrany z „Cennik OneRiver” – na razie ceny pochodzą ze sprzedaży z Subiekta.'}</p>
+      ${dane.stanyZDnia ? `<p>Stany (INC Główny + ONE Główny + Grazanka, minus rezerwacje) z arkusza magazynu z ${esc(new Date(dane.stanyZDnia).toLocaleString('pl-PL', { dateStyle: 'medium', timeStyle: 'short' }))}. Aktualizują się po imporcie stanów z Subiekta w arkuszu magazynu.</p>` : ''}
       <div class="przyciski"><button type="button" data-akcja="odswiez-katalog">Odśwież katalog teraz</button></div>
     </article>
 
@@ -100,6 +113,13 @@ function kwotaZPola(v) {
 
 async function submit(form) {
   const f = form.elements;
+  if (form.dataset.forma === 'kategorie') {
+    const wybrane = [...form.querySelectorAll('[name=kat]:checked')].map(i => i.value);
+    if (!wybrane.length) return toast('Zaznacz przynajmniej jedną kategorię.', 'blad');
+    await zapiszWiersz('USTAWIENIA', { id: 'kategorie_formularza', tresc: wybrane.join('|'), opis: 'Kategorie widoczne w formularzu zamówień (oddzielone |)' },
+      `Formularz pokazuje: ${wybrane.join(', ')}.`);
+    return;
+  }
   if (form.dataset.forma === 'wysylka') {
     const w = dane.wysylki.find(x => String(x.id) === form.dataset.id);
     const cena = kwotaZPola(f.cena.value);
@@ -139,7 +159,7 @@ async function klik(e) {
       const w = await wywolaj('odswiezKatalog', { kto: ustawienia().kto }, 300000);
       await sync.synchronizuj();
       await wczytaj();
-      toast(`Katalog: ${w.produktow} pozycji${w.zdjec ? `, ${w.zdjec} ze zdjęciem` : ''}.`, 'ok', 6000);
+      toast(`Katalog: ${w.produktow} pozycji${w.zdjec ? `, ${w.zdjec} ze zdjęciem` : ''}${w.na_stanie != null ? `, ${w.na_stanie} na stanie` : ''}.`, 'ok', 6000);
       render();
     } catch (err) {
       toast('Nie udało się odświeżyć katalogu: ' + err.message, 'blad', 8000);

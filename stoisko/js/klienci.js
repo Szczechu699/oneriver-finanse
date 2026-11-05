@@ -3,8 +3,8 @@
 
 import { $, $$, esc, kwotaTxt, num, zaokr, liczba, liczbaNaTekst, uuid, normalizuj, toast, okno, odmiana, dataKrotko } from './util.js';
 import { dane, wczytaj, klient, telefonE164, telefonCzytelny, grupaCenowa, rabatKlienta, cenySpecjalneKlienta, produktSymbolu,
-  aktywny, nowyKodKlienta, opisCenKlienta } from './dane.js';
-import { ADRES_FORMULARZA } from './konfiguracja.js';
+  aktywny, nowyKodKlienta, opisCenKlienta, poziomyGrupy } from './dane.js';
+import { ADRES_FORMULARZA, NAZWY_GRUP_POZIOMOW } from './konfiguracja.js';
 import * as sync from './sync.js';
 
 const stan = { szukaj: '', tylkoZCenami: false, szukajProduktu: '' };
@@ -100,10 +100,18 @@ function renderKlienta(id) {
       <label class="pole"><span class="etykieta">Adres dostawy</span><textarea name="adres" rows="2">${esc(k.adres)}</textarea></label>
 
       <h2>Ceny</h2>
-      <label class="pole"><span class="etykieta">Grupa cenowa</span>
+      ${Object.entries(NAZWY_GRUP_POZIOMOW).map(([g, n]) => {
+        const lista = poziomyGrupy(g).filter(aktywny);
+        const opcje = rodzaj => lista.filter(p => (p.rodzaj === 'hurt') === (rodzaj === 'hurt'));
+        return `<label class="pole"><span class="etykieta">Poziom cen – ${esc(n)}</span>
+          <select name="poziom_${g}"><option value="">Ceny katalogowe</option>
+            ${['detal', 'hurt'].map(r => opcje(r).length ? `<optgroup label="${r === 'hurt' ? 'Hurtowe' : 'Detaliczne'}">${opcje(r).map(p => `<option value="${esc(p.id)}" ${String(k['poziom_' + g]) === String(p.id) ? 'selected' : ''}>${esc(p.nazwa)}</option>`).join('')}</optgroup>` : '').join('')}
+          </select>${!lista.length ? '<span class="podpowiedz">Poziomy ustawisz w Sklep → Poziomy cen.</span>' : ''}</label>`;
+      }).join('')}
+      <label class="pole"><span class="etykieta">Grupa rabatowa (pozostałe produkty)</span>
         <select name="grupa"><option value="">Detal (bez rabatu)</option>${grupy.map(g => `<option value="${esc(g.id)}" ${String(k.grupa) === String(g.id) ? 'selected' : ''}>${esc(g.nazwa)} – rabat ${esc(String(num(g.rabat_proc)).replace('.', ','))}%</option>`).join('')}</select>
         ${!grupy.length ? '<span class="podpowiedz">Grupy (np. Hurt −30%) dodasz w zakładce Sklep.</span>' : ''}</label>
-      <label class="pole"><span class="etykieta">Własny rabat klienta w % (zastępuje rabat grupy)</span>
+      <label class="pole"><span class="etykieta">Własny rabat w % (dla produktów bez ceny w poziomie; zastępuje rabat grupy)</span>
         <input name="rabat_proc" inputmode="decimal" autocomplete="off" value="${esc(k.rabat_proc === '' || k.rabat_proc == null ? '' : String(k.rabat_proc).replace('.', ','))}" placeholder="np. 15"></label>
 
       <h2>Kod do formularza zamówień</h2>
@@ -134,7 +142,7 @@ function zFormularza(form) {
   const rabat = String(f.rabat_proc.value).trim();
   return {
     nazwa: f.nazwa.value.trim(), telefon: f.telefon.value.trim(), email: f.email.value.trim(), adres: f.adres.value.trim(),
-    grupa: f.grupa.value, rabat_proc: rabat === '' ? '' : liczba(rabat), kod: f.kod.value.trim().toUpperCase(), uwagi: f.uwagi.value.trim(),
+    grupa: f.grupa.value, rabat_proc: rabat === '' ? '' : liczba(rabat), poziom_rape: f.poziom_rape.value, poziom_zielarnia: f.poziom_zielarnia.value, kod: f.kod.value.trim().toUpperCase(), uwagi: f.uwagi.value.trim(),
   };
 }
 

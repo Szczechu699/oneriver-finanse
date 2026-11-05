@@ -52,6 +52,23 @@ export function linkWhatsApp(telefon, tresc) {
     : `https://wa.me/${cyfry}?text=${encodeURIComponent(tresc)}`;
 }
 
+/** Wiadomość dla osoby wysyłającej (grupa ZAMÓWIENIA na Messengerze albo WhatsApp). */
+export function trescDlaWysylki(zam, pozycje, klient) {
+  const d = String(zam.data || '').slice(0, 10);
+  const data = d ? new Date(d + 'T12:00:00').toLocaleDateString('pl-PL', { day: 'numeric', month: 'numeric', year: 'numeric' }) : '';
+  const linie = [`Zamówienie ${zam.id} – do wysyłki`, `Klient: ${klient?.nazwa || '—'}${klient?.telefon ? ', tel. ' + klient.telefon : ''}`, `Data: ${data}`, '', 'Produkty:'];
+  pozycje.forEach(p => linie.push(`• ${p.nazwa} × ${iloscTxt(num(p.ilosc))} – ${kwotaTxt(num(p.wartosc))}`));
+  if (zam.dostawa) linie.push(`Dostawa: ${zam.dostawa}${zam.adres_dostawy ? ' (' + String(zam.adres_dostawy).replace(/\s*\n\s*/g, ', ') + ')' : ''} – ${kwotaTxt(num(zam.koszt_dostawy))}`);
+  linie.push(`Razem z wysyłką: ${kwotaTxt(num(zam.suma_brutto))}`);
+  if (zam.kod_nadania) linie.push(`Kod nadania InPost: ${zam.kod_nadania}`);
+  if (zam.realizuje) linie.push(`Wysyła: ${zam.realizuje}`);
+  if (zam.uwagi) linie.push(`Uwagi: ${zam.uwagi}`);
+  return linie.join('\n');
+}
+
+/** WhatsApp bez numeru – otwiera wybór czatu (np. grupy) z gotową wiadomością. */
+export const linkWhatsAppDoGrupy = tresc => `https://wa.me/?text=${encodeURIComponent(tresc)}`;
+
 /** Otwiera link przez kliknięcie w niewidoczny odnośnik – działa z aplikacjami SMS i WhatsApp na telefonach. */
 export function otworzLink(href) {
   const a = document.createElement('a');

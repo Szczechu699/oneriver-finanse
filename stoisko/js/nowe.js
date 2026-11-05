@@ -68,8 +68,9 @@ function htmlWynikow() {
   const przycisk = w => {
     const c = cenaKlienta(k, w.symbol, w.cena);
     const ile = wKoszyku.get(w.symbol);
-    return `<button type="button" class="wariant${ile ? ' wybrany' : ''}" data-akcja="dodaj" data-symbol="${esc(w.symbol)}">
-      ${w.wariant ? `<span class="w-nazwa">${esc(w.wariant)}</span>` : '<span class="w-nazwa">Dodaj</span>'}
+    const brak = w.stan !== null && w.stan <= 0;
+    return `<button type="button" class="wariant${ile ? ' wybrany' : ''}${brak ? ' brak' : ''}" data-akcja="dodaj" data-symbol="${esc(w.symbol)}">
+      <span class="w-nazwa">${esc(w.wariant || 'Dodaj')}${w.stan !== null ? ` · ${brak ? 'brak' : esc(iloscTxt(w.stan)) + ' szt.'}` : ''}</span>
       <b>${c !== w.cena ? `<s>${esc(kwotaTxt(w.cena))}</s> ` : ''}${esc(kwotaTxt(c))}</b>
       ${ile ? `<span class="w-ile">×${esc(iloscTxt(ile))}</span>` : ''}</button>`;
   };

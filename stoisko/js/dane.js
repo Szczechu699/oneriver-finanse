@@ -5,11 +5,12 @@
 import * as db from './db.js';
 import { ustawienia } from './api.js';
 import { num, zaokr, dataLok, dodajDni, normalizuj } from './util.js';
-import { KOLEJNOSC_KATEGORII } from './konfiguracja.js';
+import { KOLEJNOSC_KATEGORII, GRUPY_POZIOMOW, KATEGORIE_FORMULARZA_DOMYSLNE } from './konfiguracja.js';
 
 export const dane = {
   zamowienia: [], pozycje: [], klienci: [], cennik: [], produkty: [], grupy: [], magazyny: [],
   wysylki: [], grupyCenowe: [], cenySpecjalne: [], zKatalogu: false,
+  poziomy: [], cenyPoziomow: new Map(), ustawienia: new Map(), stanyZDnia: '',
 };
 
 const numerZam = id => Number(String(id).split('-').pop()) || 0;
@@ -17,7 +18,8 @@ const prawda = v => v === true || /^(true|tak|1)$/i.test(String(v));
 export const aktywny = w => w.aktywna === '' || w.aktywna === undefined || prawda(w.aktywna);
 let podpis = '';
 
-const KARTY = ['ZAMOWIENIA', 'ZAMOWIENIA_POZ', 'KLIENCI', 'SPRZEDAZ_SGT', 'SPRZEDAZ_SGT_POZ', 'KATALOG', 'WYSYLKI', 'GRUPY_CENOWE', 'CENY_SPECJALNE'];
+const KARTY = ['ZAMOWIENIA', 'ZAMOWIENIA_POZ', 'KLIENCI', 'SPRZEDAZ_SGT', 'SPRZEDAZ_SGT_POZ', 'KATALOG', 'WYSYLKI', 'GRUPY_CENOWE', 'CENY_SPECJALNE',
+  'POZIOMY_CENOWE', 'CENY_POZIOMOW', 'USTAWIENIA'];
 
 /** Wczytuje dane z pamięci urządzenia. Zwraca true, gdy coś się zmieniło od poprzedniego wczytania. */
 export async function wczytaj() {
@@ -26,7 +28,10 @@ export async function wczytaj() {
     + ':' + l.map(w => w.status || '').join('')).join('|');
   const zmiana = nowy !== podpis;
   podpis = nowy;
-  const [z, p, k, dok, poz, kat, wys, gr, cs] = karty;
+  const [z, p, k, dok, poz, kat, wys, gr, cs, pc, cp, us] = karty;
+  dane.poziomy = pc.sort((a, b) => num(a.kolejnosc) - num(b.kolejnosc) || String(a.nazwa).localeCompare(String(b.nazwa), 'pl'));
+  dane.cenyPoziomow = new Map(cp.filter(c => c.cena !== '' && c.cena != null).map(c => [`${c.poziom_id}|${c.symbol}`, num(c.cena)]));
+  dane.ustawienia = new Map(us.map(u => [String(u.id), String(u.tresc ?? '')]));
   dane.zamowienia = z.sort((a, b) => String(b.data).localeCompare(String(a.data)) || String(b.utworzono || '').localeCompare(String(a.utworzono || '')) || numerZam(b.id) - numerZam(a.id));
   dane.pozycje = p;
   dane.klienci = k.sort((a, b) => String(a.nazwa || '').localeCompare(String(b.nazwa || ''), 'pl'));
@@ -100,12 +105,14 @@ function zbudujCennik(katalog, dokumenty, pozycje) {
       symbol: String(w.id), nazwa: String(w.nazwa), produkt: String(w.produkt || w.nazwa), wariant: String(w.wariant || ''),
       kategoria: String(w.kategoria || 'Inne'), jm: String(w.jm || 'szt.'), cena: num(w.cena), zdjecie: String(w.zdjecie || ''),
       ukryty: prawda(w.ukryty), sprzedano: sprzedaz.get(String(w.id))?.sprzedano || 0,
+      stan: w.stan === '' || w.stan == null ? null : num(w.stan),
     }));
+    dane.stanyZDnia = String(aktywne.find(w => w.stan_z_dnia)?.stan_z_dnia || '');
   } else {
     dane.cennik = [...sprzedaz.entries()].map(([symbol, e]) => {
       const r = rozbierzNazwe(e.nazwa);
       return { symbol, nazwa: e.nazwa, produkt: r.produkt, wariant: r.wariant, kategoria: e.grupa || 'Inne', jm: e.jm,
-        cena: cenaZeSprzedazy(e), zdjecie: '', ukryty: false, sprzedano: e.sprzedano };
+        cena: cenaZeSprzedazy(e), zdjecie: '', ukryty: false, sprzedano: e.sprzedano, stan: null };
     }).filter(p => p.cena > 0);
   }
 
@@ -152,11 +159,28 @@ export function rabatKlienta(k) {
 
 export const cenySpecjalneKlienta = id => dane.cenySpecjalne.filter(c => String(c.klient_id) === String(id) && aktywny(c) && c.cena !== '');
 
-/** Cena dla klienta: cena specjalna produktu → rabat klienta → rabat grupy → cena katalogowa (tak samo liczy skrypt arkusza). */
+export const poziom = id => dane.poziomy.find(p => String(p.id) === String(id));
+export const poziomyGrupy = grupa => dane.poziomy.filter(p => String(p.grupa) === grupa);
+export const cenaPoziomu = (poziomId, symbol) => dane.cenyPoziomow.get(`${poziomId}|${symbol}`);
+
+/** Poziom klienta dla produktu (po kategorii produktu: Rapé → poziom_rape, Zielarnia → poziom_zielarnia). */
+export function poziomKlienta(k, symbol) {
+  const g = GRUPY_POZIOMOW[produktSymbolu(symbol)?.kategoria];
+  if (!k || !g || !k['poziom_' + g]) return null;
+  const p = poziom(k['poziom_' + g]);
+  return p && aktywny(p) ? p : null;
+}
+
+/**
+ * Cena dla klienta: cena specjalna produktu → cena z poziomu klienta (Rapé / Zielarnia) → rabat klienta → rabat grupy
+ * → cena katalogowa. Tak samo liczy skrypt arkusza w formularzu.
+ */
 export function cenaKlienta(k, symbol, cenaKatalogowa) {
   if (!k) return cenaKatalogowa;
   const spec = cenySpecjalneKlienta(k.id).find(c => String(c.symbol) === String(symbol));
   if (spec) return num(spec.cena);
+  const p = poziomKlienta(k, symbol);
+  if (p) { const c = cenaPoziomu(p.id, symbol); if (c !== undefined) return c; }
   const r = rabatKlienta(k);
   return r > 0 ? zaokr(cenaKatalogowa * (1 - r / 100)) : cenaKatalogowa;
 }
@@ -166,7 +190,13 @@ export function opisCenKlienta(k) {
   const r = rabatKlienta(k);
   const g = grupaCenowa(k.grupa);
   const spec = cenySpecjalneKlienta(k.id).length;
-  return [g ? `grupa ${g.nazwa}` : '', r ? `rabat ${String(r).replace('.', ',')}%` : '', spec ? `${spec} cen specjalnych` : ''].filter(Boolean).join(' · ');
+  const poz = Object.values(GRUPY_POZIOMOW).map(gr => poziom(k['poziom_' + gr])).filter(Boolean).map(p => p.nazwa);
+  return [...poz, g ? `grupa ${g.nazwa}` : '', r ? `rabat ${String(r).replace('.', ',')}%` : '', spec ? `${spec} cen specjalnych` : ''].filter(Boolean).join(' · ');
+}
+
+export function kategorieFormularza() {
+  const t = dane.ustawienia.get('kategorie_formularza');
+  return t ? t.split('|').map(s => s.trim()).filter(Boolean) : KATEGORIE_FORMULARZA_DOMYSLNE;
 }
 
 // ───────────────────────── wysyłki ─────────────────────────

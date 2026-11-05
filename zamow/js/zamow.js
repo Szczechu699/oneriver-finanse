@@ -66,7 +66,7 @@ async function wczytajOferte() {
   o.produkty.forEach(p => {
     const klucz = p.w ? `${p.k}|${p.p}` : `${p.k}|${p.p}|${p.s}`;
     const g = mapa.get(klucz) || { klucz, nazwa: p.p, kategoria: p.k, zdjecie: '', link: '', warianty: [] };
-    g.warianty.push({ s: p.s, w: p.w, c: p.c, cena: ceny[p.s] !== undefined ? ceny[p.s] : p.c, nazwa: p.n });
+    g.warianty.push({ s: p.s, w: p.w, c: p.c, cena: ceny[p.s] !== undefined ? ceny[p.s] : p.c, nazwa: p.n, q: p.q ?? null });
     if (!g.zdjecie && p.z) { g.zdjecie = p.z; g.link = p.l; }
     mapa.set(klucz, g);
   });
@@ -100,11 +100,15 @@ function kategorie() {
   return [...KOLEJNOSC.filter(k => kat.has(k)), ...[...kat].filter(k => !KOLEJNOSC.includes(k))];
 }
 
+const dostepny = w => w.q === null || w.q > 0;
+
 function htmlKarty(g) {
   const ceny = g.warianty.map(w => w.cena);
   const min = Math.min(...ceny), max = Math.max(...ceny);
   const minKat = Math.min(...g.warianty.map(w => w.c));
   const jedna = g.warianty.length === 1;
+  const pierwszy = g.warianty.find(dostepny) || g.warianty[0];
+  const nic = !g.warianty.some(dostepny);
   const wKoszyku = g.warianty.reduce((a, w) => a + (s.koszyk.find(k => k.s === w.s)?.ilosc || 0), 0);
   const inicjaly = g.nazwa.replace(/^rap[eé]\s+/i, '').split(/\s+/).slice(0, 2).map(x => x[0] || '').join('').toUpperCase();
   return `<li class="karta" data-klucz="${esc(g.klucz)}">
@@ -114,8 +118,8 @@ function htmlKarty(g) {
       <span class="kategoria">${esc(g.kategoria)}</span>
       <h3>${esc(g.nazwa)}</h3>
       <p class="cena">${min !== minKat ? `<s>${esc(zl(minKat))}</s> ` : ''}${jedna || min === max ? esc(zl(min)) : `${esc(zl(min))} – ${esc(zl(max))}`}</p>
-      ${jedna ? '' : `<div class="opcje" role="group" aria-label="Wariant">${g.warianty.map((w, i) => `<button type="button" class="opcja" data-akcja="wariant" data-s="${esc(w.s)}" aria-pressed="${i === 0}">${esc(w.w || '—')}<small>${esc(zl(w.cena))}</small></button>`).join('')}</div>`}
-      <button type="button" class="do-koszyka" data-akcja="dodaj" data-s="${esc(g.warianty[0].s)}">Dodaj do koszyka</button>
+      ${jedna ? '' : `<div class="opcje" role="group" aria-label="Wariant">${g.warianty.map(w => `<button type="button" class="opcja${dostepny(w) ? '' : ' niedostepna'}" data-akcja="wariant" data-s="${esc(w.s)}" aria-pressed="${w === pierwszy}">${esc(w.w || '—')}<small>${dostepny(w) ? esc(zl(w.cena)) : 'niedostępny'}</small></button>`).join('')}</div>`}
+      <button type="button" class="do-koszyka" data-akcja="dodaj" data-s="${esc(pierwszy.s)}" ${dostepny(pierwszy) ? '' : 'disabled'}>${nic ? 'Chwilowo niedostępny' : dostepny(pierwszy) ? 'Dodaj do koszyka' : 'Niedostępny'}</button>
     </div>
   </li>`;
 }
@@ -125,7 +129,7 @@ function htmlOferty() {
   const lista = s.produkty.filter(g => (!s.kategoria || g.kategoria === s.kategoria) && slowa.every(x => g.szukaj.includes(x)));
   const kl = s.oferta.klient;
   return `
-  ${kl ? `<p class="pasek-klienta">Witaj, <b>${esc(kl.nazwa || 'kliencie')}</b>! Widzisz swoje ceny${kl.rabat ? ` (rabat ${esc(String(kl.rabat).replace('.', ','))}%)` : ''}. <button type="button" class="link" data-akcja="wyloguj">To nie ja</button></p>` : ''}
+  ${kl ? `<p class="pasek-klienta">Witaj, <b>${esc(kl.nazwa || 'kliencie')}</b>! Widzisz swoje ceny. <button type="button" class="link" data-akcja="wyloguj">To nie ja</button></p>` : ''}
   <section class="wstep">
     <h1>Zamów u nas</h1>
     <p>Wybierz produkty i sposób dostawy. Po złożeniu zamówienia potwierdzimy je SMS-em z danymi do płatności.</p>
@@ -353,10 +357,16 @@ document.addEventListener('click', async e => {
   if (a === 'wariant') {
     const karta = b.closest('.karta');
     $$('.opcja', karta).forEach(o => o.setAttribute('aria-pressed', String(o === b)));
-    $('.do-koszyka', karta).dataset.s = b.dataset.s;
+    const przycisk = $('.do-koszyka', karta);
+    przycisk.dataset.s = b.dataset.s;
+    const ok = dostepny(wariant(b.dataset.s).w);
+    przycisk.disabled = !ok;
+    przycisk.textContent = ok ? 'Dodaj do koszyka' : 'Niedostępny';
   } else if (a === 'dodaj') {
     const sym = b.dataset.s;
     const k = s.koszyk.find(x => x.s === sym);
+    const q = wariant(sym).w.q;
+    if (q !== null && (k?.ilosc || 0) + 1 > q) { toast(q ? `Dostępne tylko ${q} szt.` : 'Produkt chwilowo niedostępny.', 'blad'); return; }
     if (k) k.ilosc = Math.min(99, k.ilosc + 1); else s.koszyk.push({ s: sym, ilosc: 1 });
     zachowaj();
     const ww = wariant(sym);
@@ -378,6 +388,8 @@ document.addEventListener('click', async e => {
     zbierzFormularz();
     const sym = b.closest('[data-s]').dataset.s;
     const k = s.koszyk.find(x => x.s === sym);
+    const q = wariant(sym)?.w.q ?? null;
+    if (a === 'plus' && q !== null && k.ilosc + 1 > q) { toast(`Dostępne tylko ${q} szt.`, 'blad'); return; }
     ustawIlosc(sym, a === 'usun' ? 0 : k.ilosc + (a === 'plus' ? 1 : -1));
     odswiezSiatke();
   } else if (a === 'wyslij') {

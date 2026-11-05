@@ -16,7 +16,8 @@ numery zamówień KOD-ROK-NNNN (każde urządzenie ma własny kod), praca bez in
 przez SMS albo WhatsApp z danymi do płatności. Zapisuje do kart ZAMOWIENIA, ZAMOWIENIA_POZ i KLIENCI tego samego arkusza.
 Od 0.2.0: katalog z karty KATALOG (przepisywanej przez skrypt arkusza z „Cennik OneRiver”), warianty gramatur
 i rozmiarów, ceny klientów (grupa cenowa, rabat, ceny specjalne), dostawa, ekrany Klienci i Sklep (wysyłki, grupy),
-potwierdzanie zamówień z formularza. Przy nowej wersji podbić WERSJA w `stoisko/sw.js` i `stoisko/js/konfiguracja.js`.
+potwierdzanie zamówień z formularza. Od 0.3.0: poziomy cen detal/hurt (Rapé, Zielarnia), stany magazynowe,
+kod nadania InPost, osoba wysyłająca i przekazanie zamówienia przez Messenger/WhatsApp. Przy nowej wersji podbić WERSJA w `stoisko/sw.js` i `stoisko/js/konfiguracja.js`.
 
 ## Formularz zamówień dla klientów (`/zamow/`)
 

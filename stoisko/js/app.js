@@ -10,6 +10,7 @@ import { ekran as ekranZamowienia } from './zamowienie.js';
 import { ekran as ekranUstawien } from './ustawienia.js';
 import { ekran as ekranKlientow } from './klienci.js';
 import { ekran as ekranSklepu } from './sklep.js';
+import { ekran as ekranPoziomow } from './poziomy.js';
 import { ileDoPotwierdzenia } from './lista.js';
 
 const TRASY = {
@@ -19,6 +20,7 @@ const TRASY = {
   klienci: [ekranKlientow, 'klienci', 'Klienci'],
   klient: [ekranKlientow, 'klienci', 'Klient'],
   sklep: [ekranSklepu, 'sklep', 'Sklep'],
+  poziomy: [ekranPoziomow, 'sklep', 'Poziomy cen'],
   ustawienia: [ekranUstawien, 'ustawienia', 'Ustawienia'],
 };
 
@@ -89,7 +91,7 @@ async function start() {
   widok.addEventListener('click', e => aktywny?.klik?.(e));
   widok.addEventListener('change', e => aktywny?.zmiana?.(e));
   widok.addEventListener('input', e => aktywny?.wejscie?.(e));
-  widok.addEventListener('submit', e => { e.preventDefault(); aktywny?.submit?.(e.target); });
+  widok.addEventListener('submit', e => { e.preventDefault(); aktywny?.submit?.(e.target, e); });
 
   $('#sync').addEventListener('click', () => {
     const s = sync.stanSynchronizacji();

@@ -15,6 +15,9 @@ export const KLUCZE = {
   WYSYLKI: r => String(r.id),
   GRUPY_CENOWE: r => String(r.id),
   CENY_SPECJALNE: r => String(r.id),
+  POZIOMY_CENOWE: r => String(r.id),
+  CENY_POZIOMOW: r => String(r.id),
+  USTAWIENIA: r => String(r.id),
 };
 let kartyPobierane = Object.keys(KLUCZE);
 
@@ -45,7 +48,7 @@ async function wyslijKolejke() {
   let pierwszyBlad = null;
   const kto = ustawienia().kto || 'stoisko';
   // Najpierw klienci, potem zamówienia, na końcu pozycje – w arkuszu nic nie wskazuje na wiersz, którego jeszcze nie ma.
-  const kolejnosc = ['GRUPY_CENOWE', 'WYSYLKI', 'KLIENCI', 'CENY_SPECJALNE', 'ZAMOWIENIA', 'ZAMOWIENIA_POZ'];
+  const kolejnosc = ['USTAWIENIA', 'GRUPY_CENOWE', 'POZIOMY_CENOWE', 'CENY_POZIOMOW', 'WYSYLKI', 'KLIENCI', 'CENY_SPECJALNE', 'ZAMOWIENIA', 'ZAMOWIENIA_POZ'];
   const wgKart = new Map(kolejnosc.map(k => [k, []]));
   pozycje.forEach(p => { if (!wgKart.has(p.karta)) wgKart.set(p.karta, []); wgKart.get(p.karta).push(p); });
   for (const [karta, lista] of wgKart) {

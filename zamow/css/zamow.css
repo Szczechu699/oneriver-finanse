@@ -188,3 +188,6 @@ dialog::backdrop { background: rgb(0 0 0 / .45); }
   .opis { padding: 10px 10px 12px; }
   .do-koszyka { padding: 8px 10px; }
 }
+.opcja.niedostepna { opacity: .5; border-style: dashed; }
+.opcja.niedostepna small { color: var(--czerwien); }
+.do-koszyka:disabled { background: var(--papier-2); color: var(--szary); border: 1.5px dashed var(--linia); }
