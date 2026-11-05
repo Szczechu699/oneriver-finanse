@@ -152,12 +152,12 @@ button[type=submit], .przycisk, .przyciski button, .zatwierdz button, .szeroki {
 
 /* produkty */
 .produkty { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
-.produkty button {
+.produkty > li > button {
   width: 100%; height: 100%; min-height: 84px; text-align: left; display: grid; gap: 2px;
   grid-template-columns: 1fr auto; grid-template-areas: "nazwa cena" "info cena" "ile ile";
   padding: 12px 14px; border-radius: var(--r); border: 1.5px solid var(--linia); background: var(--papier);
 }
-.produkty button:active { border-color: var(--rzeka); background: var(--papier-2); }
+.produkty > li > button:active { border-color: var(--rzeka); background: var(--papier-2); }
 .p-nazwa { grid-area: nazwa; font-weight: 700; line-height: 1.25; }
 .p-info { grid-area: info; color: var(--szary); font-size: 13.5px; overflow-wrap: anywhere; }
 .p-cena { grid-area: cena; font-family: var(--font-liczby); font-size: 18px; white-space: nowrap; align-self: start; }
@@ -245,3 +245,50 @@ dialog::backdrop { background: rgb(0 0 0 / .45); }
   .pasek-sumy b { font-family: var(--font-liczby); font-size: 22px; white-space: nowrap; }
   #toast { bottom: calc(max(18px, env(safe-area-inset-bottom)) + 62px); }
 }
+
+/* ── 0.2: katalog z wariantami, klienci, sklep ── */
+.nawigacja { flex-wrap: wrap; }
+.nawigacja .licznik {
+  display: inline-grid; place-items: center; min-width: 20px; height: 20px; margin-left: 6px; padding: 0 5px;
+  border-radius: 999px; background: var(--kukurydza); color: #2A1F02; font-size: 12px;
+}
+.nawigacja .licznik[hidden] { display: none; }
+@media (max-width: 560px) { .nawigacja a { padding: 8px 10px; font-size: 14.5px; } }
+
+.produkty { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+.produkt { background: var(--papier); border: 1.5px solid var(--linia); border-radius: var(--r); padding: 12px; display: grid; gap: 10px; align-content: start; }
+.p-gora { display: flex; gap: 10px; align-items: flex-start; }
+.p-gora .p-nazwa small { display: block; font-weight: 400; color: var(--szary); font-size: 13px; margin-top: 2px; }
+.p-zdj { width: 52px; height: 52px; object-fit: cover; border-radius: 10px; flex: none; background: var(--papier-2); }
+.warianty { display: flex; flex-wrap: wrap; gap: 6px; }
+.wariant {
+  display: inline-flex; flex-direction: column; align-items: flex-start; gap: 0; min-height: 50px; min-width: 76px;
+  padding: 6px 10px; border-radius: 12px; border: 1.5px solid var(--linia); background: var(--papier-2); text-align: left; position: relative;
+}
+.wariant:active { border-color: var(--rzeka); }
+.wariant.wybrany { border-color: var(--wplyw); background: color-mix(in srgb, var(--wplyw) 10%, var(--papier)); }
+.w-nazwa { font-size: 13px; color: var(--szary); font-weight: 700; }
+.wariant b { font-family: var(--font-liczby); font-size: 16px; white-space: nowrap; }
+.wariant s { color: var(--szary); font-weight: 400; font-size: 13px; }
+.w-ile { position: absolute; top: -8px; right: -6px; background: var(--wplyw); color: #fff; border-radius: 999px; font-size: 12px; font-weight: 700; padding: 1px 7px; }
+.suma small { display: block; font-size: 13.5px; color: var(--szary); }
+.status.nowe { background: var(--kukurydza); color: #2A1F02; border-color: var(--kukurydza); }
+.do-potwierdzenia { border: 2px solid var(--kukurydza); }
+.ilosc-ed { max-width: 90px; }
+.kod { display: block; color: var(--szary); font-family: var(--font-liczby); letter-spacing: .04em; }
+.cena-spec { grid-template-columns: 1fr minmax(110px, 140px) auto; }
+.cena-spec button { min-height: 50px; padding: 8px 14px; border-radius: var(--r); border: 0; background: var(--rzeka); color: #fff; font-weight: 700; }
+@media (max-width: 520px) { .cena-spec { grid-template-columns: 1fr auto; } .cena-spec .poz-nazwa { grid-column: 1 / -1; } }
+
+.lista-edycji { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 10px; }
+.edycja-wiersza {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px 12px; align-items: end;
+  padding: 12px; border: 1px solid var(--linia); border-radius: var(--r); background: var(--papier-2);
+}
+.edycja-wiersza.nieaktywna { opacity: .7; border-style: dashed; }
+.edycja-wiersza .pole { margin: 0; }
+.edycja-wiersza .szeroka { grid-column: span 2; }
+.edycja-wiersza .przyciski { margin: 0; }
+.przelacznik { display: flex; align-items: center; gap: 8px; min-height: 44px; font-size: 15px; grid-column: span 2; }
+.przelacznik input { width: 22px; height: 22px; accent-color: var(--rzeka); }
+@media (max-width: 520px) { .edycja-wiersza .szeroka, .przelacznik { grid-column: 1 / -1; } }

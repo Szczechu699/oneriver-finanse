@@ -1,10 +1,10 @@
 // Service worker stoiska: trzyma pliki aplikacji w pamięci urządzenia, żeby działała bez internetu.
 // Przy każdej nowej wersji zmień WERSJA (i WERSJA w js/konfiguracja.js).
-const WERSJA = 'or-stoisko-0.1.0';
+const WERSJA = 'or-stoisko-0.2.0';
 const PLIKI = [
   './', './index.html', './css/stoisko.css', './manifest.webmanifest',
   './js/app.js', './js/api.js', './js/db.js', './js/sync.js', './js/util.js', './js/dane.js', './js/konfiguracja.js',
-  './js/nowe.js', './js/lista.js', './js/zamowienie.js', './js/ustawienia.js', './js/wiadomosc.js',
+  './js/nowe.js', './js/lista.js', './js/zamowienie.js', './js/ustawienia.js', './js/wiadomosc.js', './js/klienci.js', './js/sklep.js',
   '../icons/icon-192.png', '../icons/icon-512.png', '../icons/apple-touch-icon.png',
 ];
 const CZCIONKI = 'or-stoisko-czcionki';

@@ -16,6 +16,11 @@ export function trescWiadomosci(zam, pozycje) {
     linie.push(`${p.nazwa}: ${ilosc === 1 ? '' : iloscTxt(ilosc) + ' × '}${kwotaTxt(num(p.cena))}`);
   });
   if (pozycje.length > MAKS_POZYCJI) linie.push(`…i jeszcze ${pozycje.length - MAKS_POZYCJI} poz.`);
+  if (zam.dostawa) {
+    const koszt = num(zam.koszt_dostawy);
+    linie.push(`Dostawa – ${zam.dostawa}: ${koszt ? kwotaTxt(koszt) : 'gratis'}`);
+    if (zam.adres_dostawy) linie.push(`Adres: ${String(zam.adres_dostawy).replace(/\s*\n\s*/g, ', ')}`);
+  }
   linie.push(`Razem: ${kwotaTxt(num(zam.suma_brutto))}`, '');
 
   if (PLATNE_POZNIEJ.has(zam.forma_platnosci)) {

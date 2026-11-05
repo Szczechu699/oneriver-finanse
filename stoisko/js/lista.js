@@ -4,11 +4,12 @@ import { $, $$, esc, kwotaTxt, num, dataLok, dataKrotko, normalizuj, odmiana } f
 import { dane, klient, telefonCzytelny } from './dane.js';
 import { ustawienia } from './api.js';
 import { STATUSY } from './konfiguracja.js';
+import { etykietaStatusu } from './zamowienie.js';
 import * as sync from './sync.js';
 
-const stan = { filtr: 'dzis', szukaj: '' };
-const FILTRY = [['dzis', 'Dziś'], ['urzadzenie', 'To urządzenie'], ['nieoplacone', 'Czekają na płatność'], ['wszystkie', 'Wszystkie']];
-const klasaStatusu = st => ({ [STATUSY.czeka]: 'czeka', [STATUSY.oplacone]: 'oplacone', [STATUSY.anulowane]: 'anulowane' }[st] || '');
+const stan = { filtr: null, szukaj: '' };
+const FILTRY = [['nowe', 'Do potwierdzenia'], ['dzis', 'Dziś'], ['urzadzenie', 'To urządzenie'], ['nieoplacone', 'Czekają na płatność'], ['wszystkie', 'Wszystkie']];
+const klasaStatusu = st => ({ [STATUSY.nowe]: 'nowe', [STATUSY.czeka]: 'czeka', [STATUSY.oplacone]: 'oplacone', [STATUSY.anulowane]: 'anulowane' }[st] || '');
 
 function lista() {
   const { kod } = ustawienia();
@@ -18,6 +19,7 @@ function lista() {
     if (stan.filtr === 'dzis' && String(z.data).slice(0, 10) !== dzis) return false;
     if (stan.filtr === 'urzadzenie' && !String(z.id).startsWith(kod + '-')) return false;
     if (stan.filtr === 'nieoplacone' && z.status !== STATUSY.czeka) return false;
+    if (stan.filtr === 'nowe' && z.status !== STATUSY.nowe) return false;
     if (!slowa.length) return true;
     const k = klient(z.klient_id);
     const tekst = normalizuj([z.id, z.nr_dok_sgt, z.wydarzenie, k?.nazwa, k?.telefon, k?.email].join(' '));
@@ -41,16 +43,20 @@ function htmlListy() {
       return `<li><a href="#zamowienie/${encodeURIComponent(z.id)}">
         <span class="lz-numer">${esc(z.id)}${czekajace.has('ZAMOWIENIA|' + z.id) ? ' <i class="do-wyslania" title="Czeka na wysłanie do arkusza">●</i>' : ''}</span>
         <span class="lz-klient">${esc(k?.nazwa || (k ? telefonCzytelny(k.telefon) : 'bez klienta'))}<small>${esc(dataKrotko(z.data))} · ${esc(z.forma_platnosci || '')}${z.wydarzenie ? ' · ' + esc(z.wydarzenie) : ''}</small></span>
-        <span class="lz-kwota"><b>${esc(kwotaTxt(num(z.suma_brutto)))}</b><span class="status ${klasaStatusu(z.status)}">${esc(z.status || '')}</span></span>
+        <span class="lz-kwota"><b>${esc(kwotaTxt(num(z.suma_brutto)))}</b><span class="status ${klasaStatusu(z.status)}">${esc(etykietaStatusu(z.status))}</span></span>
       </a></li>`;
     }).join('')}</ul>`;
 }
 
+export const ileDoPotwierdzenia = () => dane.zamowienia.filter(z => z.status === STATUSY.nowe).length;
+
 function render() {
+  const nowe = ileDoPotwierdzenia();
+  if (!stan.filtr) stan.filtr = nowe ? 'nowe' : 'dzis';
   $('#widok').innerHTML = `
   <section class="ekran">
     <header class="naglowek-zam"><h1>Zamówienia</h1><a class="przycisk" href="#nowe">+ Nowe</a></header>
-    <div class="chipy male filtry">${FILTRY.map(([w, e]) => `<button type="button" class="chip" data-filtr="${w}" aria-pressed="${stan.filtr === w}">${esc(e)}</button>`).join('')}</div>
+    <div class="chipy male filtry">${FILTRY.map(([w, e]) => `<button type="button" class="chip" data-filtr="${w}" aria-pressed="${stan.filtr === w}">${esc(e)}${w === 'nowe' && nowe ? ` (${nowe})` : ''}</button>`).join('')}</div>
     <label class="pole szukaj"><span class="sr">Szukaj</span>
       <input type="search" id="szukaj-zam" value="${esc(stan.szukaj)}" placeholder="Numer, klient, telefon, paragon" autocomplete="off"></label>
     <div id="lista-zam">${htmlListy()}</div>

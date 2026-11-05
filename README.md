@@ -14,4 +14,12 @@ Szczegóły: brief projektu „Aplikacja finansowa One River – brief projektu�
 Osobna aplikacja na tablet/telefon przy stoisku: rejestr sprzedaży z cennikiem z Subiekta (cena po rabacie),
 numery zamówień KOD-ROK-NNNN (każde urządzenie ma własny kod), praca bez internetu, podsumowanie dla klienta
 przez SMS albo WhatsApp z danymi do płatności. Zapisuje do kart ZAMOWIENIA, ZAMOWIENIA_POZ i KLIENCI tego samego arkusza.
-Przy nowej wersji podbić WERSJA w `stoisko/sw.js` i `stoisko/js/konfiguracja.js`.
+Od 0.2.0: katalog z karty KATALOG (przepisywanej przez skrypt arkusza z „Cennik OneRiver”), warianty gramatur
+i rozmiarów, ceny klientów (grupa cenowa, rabat, ceny specjalne), dostawa, ekrany Klienci i Sklep (wysyłki, grupy),
+potwierdzanie zamówień z formularza. Przy nowej wersji podbić WERSJA w `stoisko/sw.js` i `stoisko/js/konfiguracja.js`.
+
+## Formularz zamówień dla klientów (`/zamow/`)
+
+Publiczna strona na wzór sklepu oneriver.pl: oferta z karty KATALOG, kod klienta (ceny specjalne), koszyk, dostawa.
+Korzysta z publicznych akcji skryptu arkusza (`sklep`, `zamow`, wersja 7) – bez tokenu; ceny liczy skrypt.
+Zamówienie trafia do ZAMOWIENIA ze statusem „nowe” (numer W-RRRR-NNNN) i czeka na potwierdzenie w Stoisku.

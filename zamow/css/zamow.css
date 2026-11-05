@@ -1,0 +1,190 @@
+/* Formularz zamówień ONE RIVER – siatka produktów jak w sklepie oneriver.pl, kolory aplikacji One River. */
+
+:root {
+  --tlo: #F4F1EA;
+  --papier: #FFFFFF;
+  --papier-2: #F7F5F0;
+  --atrament: #1B2422;
+  --szary: #5E6865;
+  --linia: #DDD8CC;
+  --rzeka: #155E5B;
+  --rzeka-ciemna: #0D4240;
+  --kukurydza: #E5B335;
+  --wplyw: #2C6E39;
+  --czerwien: #A3261B;
+  --font: 'Atkinson Hyperlegible', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-naglowki: 'Bricolage Grotesque', var(--font);
+  --r: 14px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --tlo: #101716; --papier: #19221F; --papier-2: #1F2A27; --atrament: #E9EEEC; --szary: #A6B2AE;
+    --linia: #2F3B38; --rzeka: #1F7A75; --rzeka-ciemna: #0B302E; --wplyw: #47A05A; --czerwien: #E0675B;
+    color-scheme: dark;
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--tlo); color: var(--atrament); font: 400 17px/1.5 var(--font); -webkit-tap-highlight-color: transparent; }
+button, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { opacity: .55; cursor: default; }
+:focus-visible { outline: 3px solid var(--kukurydza); outline-offset: 2px; }
+a { color: var(--rzeka); }
+@media (prefers-color-scheme: dark) { a { color: #7CC7C1; } }
+h1, h2, h3 { font-family: var(--font-naglowki); letter-spacing: -0.01em; }
+.sr, .pulapka { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* nagłówek */
+.gora {
+  position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 10px;
+  padding: max(10px, env(safe-area-inset-top)) 16px 10px; background: var(--rzeka-ciemna); color: #F2F5F3;
+}
+.marka { display: flex; align-items: center; gap: 10px; color: inherit; text-decoration: none; margin-right: auto; }
+.marka img { border-radius: 9px; }
+.marka b { display: block; font-family: var(--font-naglowki); letter-spacing: .12em; font-size: 17px; line-height: 1.1; }
+.marka small { display: block; font-size: 12.5px; opacity: .8; letter-spacing: .04em; }
+.kod-przycisk { border: 1px solid #4C7E7A; background: transparent; color: inherit; border-radius: 999px; padding: 8px 14px; font-size: 14.5px; max-width: 42vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.koszyk-przycisk { position: relative; display: inline-flex; align-items: center; gap: 6px; border: 0; border-radius: 999px; padding: 9px 14px; background: #EEF4F2; color: var(--rzeka-ciemna); font-weight: 700; }
+.koszyk-przycisk.pelny { background: var(--kukurydza); color: #2A1F02; }
+.tkanina {
+  height: 10px;
+  background:
+    linear-gradient(135deg, var(--rzeka-ciemna) 25%, transparent 25%) -5px 0 / 10px 10px,
+    linear-gradient(225deg, var(--rzeka-ciemna) 25%, transparent 25%) -5px 0 / 10px 10px,
+    linear-gradient(315deg, var(--rzeka) 25%, transparent 25%) 0 0 / 10px 10px,
+    linear-gradient(45deg, var(--rzeka) 25%, var(--kukurydza) 25%) 0 0 / 10px 10px;
+}
+main { max-width: 1240px; margin: 0 auto; padding: 18px 16px 110px; outline: none; }
+main[aria-busy] { opacity: .6; }
+.laduje { color: var(--szary); padding: 40px 0; text-align: center; }
+.stopka { text-align: center; color: var(--szary); font-size: 14px; padding: 0 16px 100px; }
+
+/* wstęp i kategorie */
+.wstep h1 { font-size: clamp(30px, 6vw, 44px); margin: 6px 0 4px; }
+.wstep p { color: var(--szary); margin: 0 0 18px; max-width: 60ch; }
+.pasek-klienta { background: color-mix(in srgb, var(--wplyw) 14%, var(--papier)); border: 1px solid color-mix(in srgb, var(--wplyw) 35%, transparent); border-radius: var(--r); padding: 10px 14px; margin: 0 0 12px; }
+.kategorie { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 12px; scrollbar-width: thin; }
+.kat {
+  flex: none; border: 1.5px solid var(--linia); background: var(--papier); border-radius: 999px; padding: 9px 16px; min-height: 44px;
+  font-weight: 700; display: inline-flex; align-items: center; gap: 7px;
+}
+.kat small { font-weight: 400; color: var(--szary); font-size: 13px; }
+.kat[aria-pressed="true"] { background: var(--rzeka); border-color: var(--rzeka); color: #fff; }
+.kat[aria-pressed="true"] small { color: #D9ECE9; }
+.szukaj input { width: 100%; min-height: 52px; padding: 10px 16px; border: 1.5px solid var(--linia); border-radius: var(--r); background: var(--papier); font-size: 18px; }
+.szukaj input:focus, .pole input:focus, .pole textarea:focus { outline: none; border-color: var(--rzeka); box-shadow: 0 0 0 3px color-mix(in srgb, var(--kukurydza) 55%, transparent); }
+.licznik-wynikow { color: var(--szary); font-size: 14.5px; margin: 10px 0; }
+
+/* siatka produktów */
+.siatka { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+@media (max-width: 480px) { .siatka { grid-template-columns: 1fr 1fr; gap: 10px; } }
+.karta { background: var(--papier); border: 1px solid var(--linia); border-radius: 18px; overflow: hidden; display: flex; flex-direction: column; }
+.zdjecie { position: relative; aspect-ratio: 1; background: var(--papier-2); }
+.zdjecie img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.zastepcze {
+  position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--font-naglowki); font-size: 34px; font-weight: 700; color: #F4F1EA;
+  background:
+    repeating-linear-gradient(135deg, transparent 0 14px, rgb(255 255 255 / .06) 14px 28px),
+    linear-gradient(160deg, var(--rzeka) 0%, var(--rzeka-ciemna) 100%);
+}
+.w-koszyku { position: absolute; left: 8px; top: 8px; background: var(--wplyw); color: #fff; border-radius: 999px; padding: 3px 10px; font-size: 13px; font-weight: 700; }
+.opis { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.kategoria { font-size: 12.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--szary); }
+.karta h3 { margin: 0; font-size: 17px; line-height: 1.25; font-weight: 700; }
+.cena { margin: 0; font-family: var(--font-naglowki); font-weight: 700; font-size: 18px; }
+.cena s { color: var(--szary); font-weight: 500; font-size: 14px; }
+.opcje { display: flex; flex-wrap: wrap; gap: 6px; }
+.opcja { border: 1.5px solid var(--linia); background: var(--papier-2); border-radius: 10px; padding: 5px 10px; min-height: 44px; font-weight: 700; font-size: 14.5px; display: inline-flex; flex-direction: column; align-items: flex-start; line-height: 1.2; }
+.opcja small { font-weight: 400; color: var(--szary); font-size: 12.5px; }
+.opcja[aria-pressed="true"] { border-color: var(--rzeka); background: color-mix(in srgb, var(--rzeka) 12%, var(--papier)); }
+.do-koszyka, .glowny, .przyciski button, .zamowienie > p > button:not(.link), .dziekujemy button, .wstep button, .wiecej button {
+  min-height: 48px; border: 0; border-radius: 12px; background: var(--rzeka); color: #fff; font-weight: 700; padding: 10px 16px;
+}
+.do-koszyka { margin-top: auto; }
+.drugorzedny { background: transparent !important; color: var(--atrament) !important; border: 1.5px solid var(--linia) !important; }
+.wiecej { text-align: center; margin: 22px 0; }
+.link { background: none; border: 0; padding: 0; color: var(--rzeka); text-decoration: underline; font-weight: 700; }
+@media (prefers-color-scheme: dark) { .link { color: #7CC7C1; } }
+.pusto { color: var(--szary); }
+
+/* pasek koszyka (telefon) */
+.pasek-koszyka {
+  position: fixed; z-index: 15; left: 12px; right: 12px; bottom: max(12px, env(safe-area-inset-bottom));
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 12px 18px; border: 0; border-radius: 16px; background: var(--kukurydza); color: #2A1F02; font-weight: 700;
+  box-shadow: 0 10px 30px rgb(0 0 0 / .25); max-width: 640px; margin: 0 auto;
+}
+.pasek-koszyka[hidden] { display: none; }
+.pasek-koszyka b { font-family: var(--font-naglowki); font-size: 19px; }
+
+/* koszyk i dane */
+.zamowienie h1 { font-size: 32px; margin: 4px 0 16px; }
+.uklad { display: grid; gap: 16px; align-items: start; }
+@media (min-width: 900px) { .uklad { grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr); } .podsumowanie { position: sticky; top: 84px; } }
+.panel { background: var(--papier); border: 1px solid var(--linia); border-radius: 18px; padding: 18px; margin-bottom: 16px; }
+.panel h2 { font-size: 20px; margin: 0 0 12px; }
+.panel h2:not(:first-child) { margin-top: 24px; }
+.pozycje { list-style: none; margin: 0; padding: 0; }
+.pozycje li { display: grid; grid-template-columns: 56px 1fr auto auto auto; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--linia); }
+.pozycje img, .mini-zastepcze { width: 56px; height: 56px; border-radius: 10px; object-fit: cover; background: linear-gradient(160deg, var(--rzeka), var(--rzeka-ciemna)); }
+.poz-nazwa { font-weight: 700; line-height: 1.25; }
+.poz-nazwa small { display: block; font-weight: 400; color: var(--szary); font-size: 13.5px; }
+.stepper { display: inline-flex; align-items: center; border: 1.5px solid var(--linia); border-radius: 12px; overflow: hidden; }
+.stepper button { width: 40px; height: 42px; border: 0; background: var(--papier-2); font-size: 20px; }
+.stepper b { min-width: 30px; text-align: center; }
+.wartosc { font-family: var(--font-naglowki); white-space: nowrap; }
+.usun { border: 0; background: none; font-size: 22px; color: var(--szary); width: 36px; height: 40px; }
+@media (max-width: 560px) {
+  .pozycje li { grid-template-columns: 48px 1fr auto; grid-template-areas: "img nazwa usun" "img stepper wartosc"; }
+  .pozycje img, .mini-zastepcze { grid-area: img; width: 48px; height: 48px; }
+  .poz-nazwa { grid-area: nazwa; } .stepper { grid-area: stepper; justify-self: start; } .wartosc { grid-area: wartosc; } .usun { grid-area: usun; }
+}
+.pole { display: block; margin: 0 0 14px; }
+.pole > span { display: block; font-weight: 700; font-size: 15px; color: var(--szary); margin-bottom: 6px; }
+.pole small { font-weight: 400; }
+.pole input, .pole textarea { width: 100%; min-height: 50px; padding: 10px 14px; border: 1.5px solid var(--linia); border-radius: 12px; background: var(--papier); }
+.wybory { display: grid; gap: 8px; margin-bottom: 14px; }
+.wybor { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; padding: 12px 14px; border: 1.5px solid var(--linia); border-radius: 12px; background: var(--papier-2); cursor: pointer; }
+.wybor:has(input:checked) { border-color: var(--rzeka); background: color-mix(in srgb, var(--rzeka) 10%, var(--papier)); }
+.wybor input { width: 20px; height: 20px; accent-color: var(--rzeka); }
+.wybor small { display: block; color: var(--szary); font-size: 13.5px; }
+.cena-dostawy { text-align: right; font-weight: 700; white-space: nowrap; }
+.cena-dostawy small { display: block; font-weight: 400; color: var(--szary); font-size: 12.5px; }
+.podsumowanie dl { margin: 0 0 14px; display: grid; gap: 8px; }
+.podsumowanie dl div { display: flex; justify-content: space-between; }
+.podsumowanie dt { color: var(--szary); }
+.podsumowanie dd { margin: 0; font-weight: 700; }
+.podsumowanie .razem { border-top: 1px solid var(--linia); padding-top: 10px; font-size: 20px; }
+.podsumowanie .razem dd { font-family: var(--font-naglowki); font-size: 26px; }
+.glowny { width: 100%; background: var(--kukurydza); color: #2A1F02; font-size: 18px; min-height: 56px; }
+.drobne { color: var(--szary); font-size: 13.5px; }
+
+.dziekujemy { text-align: center; padding: 30px 0; }
+.dziekujemy h1 { font-size: 40px; margin: 0 0 6px; }
+.dziekujemy .numer { font-family: var(--font-naglowki); font-size: 36px; font-weight: 700; margin: 0 0 12px; letter-spacing: .02em; }
+
+/* komunikaty, okno */
+#toast {
+  position: fixed; z-index: 50; left: 50%; bottom: calc(max(18px, env(safe-area-inset-bottom)) + 70px); transform: translate(-50%, 160%);
+  max-width: min(92vw, 520px); padding: 12px 18px; border-radius: 12px; background: var(--atrament); color: var(--papier);
+  box-shadow: 0 8px 24px rgb(0 0 0 / .25); transition: transform .25s ease, visibility 0s linear .25s; visibility: hidden; pointer-events: none;
+}
+#toast.widoczny { transform: translate(-50%, 0); visibility: visible; transition: transform .25s ease; }
+#toast.ok { background: var(--wplyw); color: #fff; }
+#toast.blad { background: var(--czerwien); color: #fff; }
+dialog { border: 0; border-radius: 18px; padding: 0; max-width: min(92vw, 460px); background: var(--papier); color: var(--atrament); }
+dialog::backdrop { background: rgb(0 0 0 / .45); }
+.okno { padding: 20px; }
+.okno h2 { margin: 0 0 8px; }
+.okno p { color: var(--szary); margin-top: 0; }
+.przyciski { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
+@media (max-width: 480px) {
+  .marka b { letter-spacing: .06em; font-size: 15px; }
+  .karta h3 { font-size: 15.5px; }
+  .cena { font-size: 15.5px; }
+  .opis { padding: 10px 10px 12px; }
+  .do-koszyka { padding: 8px 10px; }
+}

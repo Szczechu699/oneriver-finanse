@@ -8,11 +8,17 @@ import { ekran as ekranNowe } from './nowe.js';
 import { ekran as ekranListy } from './lista.js';
 import { ekran as ekranZamowienia } from './zamowienie.js';
 import { ekran as ekranUstawien } from './ustawienia.js';
+import { ekran as ekranKlientow } from './klienci.js';
+import { ekran as ekranSklepu } from './sklep.js';
+import { ileDoPotwierdzenia } from './lista.js';
 
 const TRASY = {
   nowe: [ekranNowe, 'nowe', 'Nowe zamówienie'],
   lista: [ekranListy, 'lista', 'Zamówienia'],
   zamowienie: [ekranZamowienia, 'lista', 'Zamówienie'],
+  klienci: [ekranKlientow, 'klienci', 'Klienci'],
+  klient: [ekranKlientow, 'klienci', 'Klient'],
+  sklep: [ekranSklepu, 'sklep', 'Sklep'],
   ustawienia: [ekranUstawien, 'ustawienia', 'Ustawienia'],
 };
 
@@ -35,6 +41,10 @@ function render() {
     if (a.dataset.widok === zakladka) a.setAttribute('aria-current', 'page');
     else a.removeAttribute('aria-current');
   });
+  const n = ileDoPotwierdzenia();
+  const licznik = $('.nawigacja [data-widok="lista"] .licznik');
+  licznik.textContent = n || '';
+  licznik.hidden = !n;
   ekran.render(arg);
   document.title = `${tytul} · One River Stoisko`;
 }

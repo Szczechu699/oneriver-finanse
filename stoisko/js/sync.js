@@ -11,7 +11,12 @@ export const KLUCZE = {
   KLIENCI: r => String(r.id),
   SPRZEDAZ_SGT: r => `${r.podmiot}|${r.dok_id}`,
   SPRZEDAZ_SGT_POZ: r => `${r.podmiot}|${r.ob_id}`,
+  KATALOG: r => String(r.id),
+  WYSYLKI: r => String(r.id),
+  GRUPY_CENOWE: r => String(r.id),
+  CENY_SPECJALNE: r => String(r.id),
 };
+let kartyPobierane = Object.keys(KLUCZE);
 
 const sluchacze = new Set();
 let stan = { tryb: 'start', oczekujace: 0, oczekujaceKlucze: new Set(), ostatnia: null, blad: null };
@@ -37,25 +42,43 @@ export async function zapisz(paczki) {
 async function wyslijKolejke() {
   const pozycje = await db.kolejka();
   if (!pozycje.length) return;
+  let pierwszyBlad = null;
   const kto = ustawienia().kto || 'stoisko';
   // Najpierw klienci, potem zamówienia, na końcu pozycje – w arkuszu nic nie wskazuje na wiersz, którego jeszcze nie ma.
-  const kolejnosc = ['KLIENCI', 'ZAMOWIENIA', 'ZAMOWIENIA_POZ'];
+  const kolejnosc = ['GRUPY_CENOWE', 'WYSYLKI', 'KLIENCI', 'CENY_SPECJALNE', 'ZAMOWIENIA', 'ZAMOWIENIA_POZ'];
   const wgKart = new Map(kolejnosc.map(k => [k, []]));
   pozycje.forEach(p => { if (!wgKart.has(p.karta)) wgKart.set(p.karta, []); wgKart.get(p.karta).push(p); });
   for (const [karta, lista] of wgKart) {
-    for (let i = 0; i < lista.length; i += 200) {
-      const paczka = lista.slice(i, i + 200);
-      await wywolaj('zapisz', { karta, kto, wiersze: paczka.map(p => p.wiersz) });
-      await db.kolejkaUsun(paczka.map(p => p.nr));
+    try {
+      for (let i = 0; i < lista.length; i += 200) {
+        const paczka = lista.slice(i, i + 200);
+        await wywolaj('zapisz', { karta, kto, wiersze: paczka.map(p => p.wiersz) });
+        await db.kolejkaUsun(paczka.map(p => p.nr));
+      }
+    } catch (e) {
+      // błąd jednej karty (np. skrypt arkusza bez karty WYSYLKI) nie wstrzymuje zamówień
+      if (!(e instanceof BladApi)) throw e;
+      pierwszyBlad = pierwszyBlad || e;
     }
   }
+  if (pierwszyBlad) throw pierwszyBlad;
 }
 
 async function pobierzZmiany(pelna) {
-  const karty = Object.keys(KLUCZE);
+  const karty = kartyPobierane;
   const od = {};
   if (!pelna) for (const k of karty) od[k] = (await db.metaPobierz('stan:' + k)) || null;
-  const wynik = await wywolaj('pobierzWiele', { karty, od }, 90000);
+  let wynik;
+  try {
+    wynik = await wywolaj('pobierzWiele', { karty, od }, 90000);
+  } catch (e) {
+    // starszy skrypt arkusza nie zna nowej karty – pobieramy resztę
+    const m = /Nieznana karta: (\w+)|brakuje karty (\w+)/.exec(e.message || '');
+    const brak = m && (m[1] || m[2]);
+    if (!brak || !kartyPobierane.includes(brak)) throw e;
+    kartyPobierane = kartyPobierane.filter(k => k !== brak);
+    return pobierzZmiany(pelna);
+  }
   const czekajace = new Set((await db.kolejka()).map(p => `${p.karta}|${p.klucz}`));
   for (const karta of karty) {
     const dane = wynik[karta];
@@ -78,6 +101,7 @@ export function synchronizuj({ pelna = false } = {}) {
     if (!polaczone()) { ustaw({ tryb: 'brak-ustawien', blad: null }); return; }
     if (!navigator.onLine) { ustaw({ tryb: 'offline', blad: null }); return; }
     ustaw({ tryb: 'praca', blad: null });
+    kartyPobierane = Object.keys(KLUCZE);
     try {
       let bladZapisu = null;
       await wyslijKolejke().catch(e => { if (e instanceof BladApi) bladZapisu = e.message; else throw e; });
