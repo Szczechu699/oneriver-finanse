@@ -5,11 +5,11 @@ import * as sync from './sync.js';
 import { mozePrywatne } from './api.js';
 import { dataLok, dodajDni, przesunDate, roznicaDni, zaokr } from './util.js';
 
-export const dane = { slownik: [], transakcje: [], planowane: [], budzety: [], pozyczki: [], sprzedaz: [], sprzedazPoz: [], sprzedazWszystkie: [], sprzedazPozWszystkie: [], importy: [], rozliczenia: [] };
+export const dane = { slownik: [], transakcje: [], planowane: [], budzety: [], pozyczki: [], sprzedaz: [], sprzedazPoz: [], sprzedazWszystkie: [], sprzedazPozWszystkie: [], importy: [], rozliczenia: [], zamowienia: [], liczeniaKasy: [] };
 
 export async function wczytajDane() {
-  [dane.slownik, dane.transakcje, dane.planowane, dane.budzety, dane.pozyczki, dane.sprzedaz, dane.sprzedazPoz, dane.importy, dane.rozliczenia] = await Promise.all(
-    ['SLOWNIK', 'TRANSAKCJE', 'PLANOWANE', 'BUDZETY', 'POZYCZKI', 'SPRZEDAZ_SGT', 'SPRZEDAZ_SGT_POZ', 'IMPORTY', 'ROZLICZENIA'].map(k => db.wiersze(k)));
+  [dane.slownik, dane.transakcje, dane.planowane, dane.budzety, dane.pozyczki, dane.sprzedaz, dane.sprzedazPoz, dane.importy, dane.rozliczenia, dane.zamowienia, dane.liczeniaKasy] = await Promise.all(
+    ['SLOWNIK', 'TRANSAKCJE', 'PLANOWANE', 'BUDZETY', 'POZYCZKI', 'SPRZEDAZ_SGT', 'SPRZEDAZ_SGT_POZ', 'IMPORTY', 'ROZLICZENIA', 'ZAMOWIENIA', 'KASA_LICZENIA'].map(k => db.wiersze(k)));
   // paragony i pozycje usunięte w Subiekcie zostają w arkuszu ze statusem, ale nie liczą się nigdzie
   dane.sprzedazWszystkie = dane.sprzedaz;
   dane.sprzedazPozWszystkie = dane.sprzedazPoz;

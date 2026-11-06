@@ -6,6 +6,7 @@
 
 import { $, $$, esc, zaokr, kwotaTxt, dataLok, roznicaDni, dataKrotko, dataSlownie, uuid, odmiana, toast, okno, bezSkoku, liczba, liczbaNaTekst } from './util.js';
 import { dane, wczytajDane, glowne, czyKorekta, kolorKonta, konta, PRYWATNE } from './dane.js';
+import { zakladkiRozliczen } from './kasa.js';
 import * as sync from './sync.js';
 
 const num = v => (isFinite(Number(v)) ? Number(v) : 0);
@@ -274,6 +275,7 @@ function renderLista() {
   $('#widok').innerHTML = `
   <section class="ekran rozliczenia-ekran">
     <div class="naglowek-sekcji"><h1>Rozliczenia</h1></div>
+    ${zakladkiRozliczen('bezgotowkowe')}
     <div class="kafle-wskaznikow dwa">
       <div class="wskaznik"><span class="etykieta-wsk">Wpływy bez paragonu</span><b>${esc(kwotaTxt(sumaW))}</b><span class="zmiana">${otwarteWplywy().length} ${odmiana(otwarteWplywy().length, 'wpływ', 'wpływy', 'wpływów')} (bez prywatnych)</span></div>
       <div class="wskaznik"><span class="etykieta-wsk">Paragony bezgotówkowe bez wpływu</span><b>${esc(kwotaTxt(sumaP))}</b><span class="zmiana">${bezgot.length} ${odmiana(bezgot.length, 'paragon', 'paragony', 'paragonów')}</span></div>

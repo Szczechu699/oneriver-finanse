@@ -910,3 +910,38 @@ tr.wycofany td { opacity: .6; }
 /* Konto prywatne – przełącznik z opisem */
 .przelacznik.opis { white-space: normal; align-items: flex-start; font-size: 14px; line-height: 1.4; }
 .przelacznik.opis input { flex: none; margin-top: 2px; }
+
+/* ── Rozliczenia: zakładki i kasa ── */
+.zakladki-rozl { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 14px; }
+.zakladki-rozl a { padding: 8px 14px; border-radius: 99px; border: 1.5px solid var(--linia); text-decoration: none; color: inherit; font-weight: 600; font-size: 14px; background: var(--papier, #fff); }
+.zakladki-rozl a[aria-selected="true"] { background: var(--rzeka); border-color: var(--rzeka); color: #fff; }
+.kasy { list-style: none; padding: 0; margin: 0 0 18px; display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+.kasa-karta { border: 1.5px solid var(--linia); border-radius: 14px; padding: 14px; display: grid; gap: 10px; background: var(--papier, #fff); }
+.kasa-karta.zakonczona { opacity: .65; }
+.kasa-gora b { font-size: 17px; display: block; }
+.kasa-gora small { color: var(--szary); }
+.kasa-liczby, .kasa-rachunek { margin: 0; display: grid; gap: 6px; }
+.kasa-liczby div, .kasa-rachunek div { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.kasa-liczby dt, .kasa-rachunek dt { color: var(--szary); font-size: 14px; }
+.kasa-liczby dd, .kasa-rachunek dd { margin: 0; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+.kasa-liczby dd small, .kasa-rachunek dd small { display: block; font-weight: 400; color: var(--szary); font-size: 12px; }
+.kasa-rachunek { border: 1.5px solid var(--linia); border-radius: 12px; padding: 10px 12px; margin: 12px 0; }
+.kasa-rachunek .suma { border-top: 1px solid var(--linia); padding-top: 6px; }
+.kasa-rachunek .suma dd { font-size: 18px; }
+.kasa-rachunek .zgodne dd { color: #2E7D4F; }
+.kasa-rachunek .brak dd { color: #B3261E; }
+.kasa-rachunek .nadwyzka dd { color: #9A6B00; }
+.kasa-pozycje { list-style: none; padding: 0; margin: 0 0 8px; border: 1.5px solid var(--linia); border-radius: 12px; overflow: hidden; }
+.kasa-pozycje li { border-bottom: 1px solid var(--linia); }
+.kasa-pozycje li:last-child { border-bottom: 0; }
+.kasa-pozycje label, .kasa-pozycje li > .kp-opis { display: flex; gap: 10px; align-items: center; padding: 8px 12px; }
+.kasa-pozycje li:not(:has(label)) { display: flex; justify-content: space-between; align-items: center; padding-right: 12px; }
+.kasa-pozycje input { width: 20px; height: 20px; flex: none; accent-color: var(--rzeka); }
+.kp-opis { flex: 1; min-width: 0; }
+.kp-opis small { display: block; color: var(--szary); font-size: 12px; }
+.kp-kwota { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.kasa-ruchy { margin: 6px 0 4px; }
+.kasa-ruchy ul { list-style: none; padding: 0; margin: 6px 0; }
+.kasa-ruchy li { display: grid; grid-template-columns: 70px 1fr auto; gap: 8px; padding: 4px 0; border-bottom: 1px dotted var(--linia); font-size: 14px; }
+.ostrzezenie { color: #B3261E; font-weight: 600; }
+.podtytul-sekcji { font-size: 18px; margin: 8px 0; }
