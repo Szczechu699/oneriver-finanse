@@ -6,7 +6,7 @@
 
 import { $, $$, esc, zaokr, kwotaTxt, dataLok, roznicaDni, dataKrotko, dataSlownie, uuid, odmiana, toast, okno, bezSkoku, liczba, liczbaNaTekst } from './util.js';
 import { dane, wczytajDane, glowne, czyKorekta, kolorKonta, konta, PRYWATNE } from './dane.js';
-import { zakladkiRozliczen } from './kasa.js';
+import { zakladkiRozliczen, paryZamowienParagonow } from './kasa.js';
 import * as sync from './sync.js';
 
 const num = v => (isFinite(Number(v)) ? Number(v) : 0);
@@ -65,7 +65,39 @@ function zgodnaNazwa(d, t) {
 
 // ───────────────────────── propozycje ─────────────────────────
 
-const otwarteParagony = () => dane.sprzedaz.filter(d => num(d.brutto) > 0 && zostaloParagonu(d) > GROSZE);
+// ───────────── zamówienia ze Stoiska bez paragonu (traktowane jak paragon „STOISKO|<numer>”) ─────────────
+export const PODMIOT_ZAMOWIEN = 'STOISKO';
+/** Zamówienia ze Stoiska, do których nie ma jeszcze paragonu z Subiektu – w formie paragonu do rozliczenia. */
+export function zamowieniaBezParagonu() {
+  const { zamDoPar } = paryZamowienParagonow();
+  return dane.zamowienia.filter(z => z.status !== 'anulowane' && z.status !== 'nowe' && !zamDoPar.has(String(z.id)) && num(z.suma_brutto) > 0)
+    .map(z => ({
+      podmiot: PODMIOT_ZAMOWIEN, dok_id: String(z.id), numer: String(z.id), data: String(z.data || '').slice(0, 10), zamowienie: true,
+      kontrahent: dane.klienci.find(k => String(k.id) === String(z.klient_id))?.nazwa || '', magazyn: z.wydarzenie || z.magazyn || '', forma_platnosci: z.forma_platnosci || '',
+      brutto: num(z.suma_brutto), kw_gotowka: num(z.kw_gotowka), status_zam: z.status,
+    }));
+}
+/** Paragony z Subiektu i zamówienia ze Stoiska bez paragonu. */
+export const paragonyIZamowienia = () => [...dane.sprzedaz, ...zamowieniaBezParagonu()];
+const znajdzParagon = klucz => paragonyIZamowienia().find(x => kluczParagonu(x) === klucz);
+
+/**
+ * Gdy do zamówienia ze Stoiska dojdzie paragon z Subiektu (wklejona sprzedaż), rozliczenia zrobione na zamówieniu
+ * przechodzą na paragon. Zwraca liczbę przeniesionych wierszy.
+ */
+export async function przeniesRozliczeniaZamowien() {
+  const { zamDoPar } = paryZamowienParagonow();
+  const doZmiany = aktywne().filter(r => r.obiekt_typ === 'paragon' && String(r.obiekt_id).startsWith(PODMIOT_ZAMOWIEN + '|'))
+    .map(r => { const d = zamDoPar.get(String(r.obiekt_id).slice(PODMIOT_ZAMOWIEN.length + 1)); return d && { ...r, obiekt_id: kluczParagonu(d), uwagi: `${d.numer} (${d.podmiot}) – zamówienie ${String(r.obiekt_id).slice(PODMIOT_ZAMOWIEN.length + 1)}` }; })
+    .filter(Boolean);
+  if (!doZmiany.length) return 0;
+  await sync.zapisz('ROZLICZENIA', doZmiany);
+  await wczytajDane();
+  return doZmiany.length;
+}
+
+// Zamówienie w całości gotówkowe rozlicza się w kasie, nie z wpływem na konto.
+const otwarteParagony = () => paragonyIZamowienia().filter(d => num(d.brutto) > 0 && zostaloParagonu(d) > GROSZE && !(d.zamowienie && gotowkowy(d)));
 const otwarteWplywy = () => dane.transakcje.filter(t => czyWplywDoRozliczenia(t) && zostaloWplywu(t) > 0.004);
 
 function ocena(t, d, resztaW, resztaP) {
@@ -149,7 +181,7 @@ async function rozlicz(t, d, kwota) {
   const r = zParagonem(t, d, kwota);
   await sync.zapisz('ROZLICZENIA', [r]);
   await wczytajDane();
-  toast(`Rozliczono ${kwotaTxt(kwota, t.waluta)} z paragonem ${d.numer}.`, 'ok', 5000,
+  toast(`Rozliczono ${kwotaTxt(kwota, t.waluta)} z ${d.zamowienie ? "zamówieniem" : "paragonem"} ${d.numer}.`, 'ok', 5000,
     { etykieta: 'Cofnij', fn: async () => { await cofnij(r.id); bezSkoku(rysujBiezacy); } });
 }
 
@@ -246,7 +278,7 @@ function wierszParagonu(d) {
   const rozl = rozliczonoParagonu(kluczParagonu(d));
   return `<li><a class="wiersz-rozl" href="#rozliczenie/p:${encodeURIComponent(kluczParagonu(d))}">
     <span class="data-rozl">${esc(dataKrotko(d.data))}</span>
-    <span class="opis-rozl"><b><span class="rodzaj-rozl paragon">paragon</span> ${esc(d.numer)} <span class="znacznik">${esc(d.podmiot)}</span></b>
+    <span class="opis-rozl"><b><span class="rodzaj-rozl paragon">${d.zamowienie ? 'zamówienie' : 'paragon'}</span> ${esc(d.numer)} <span class="znacznik">${d.zamowienie ? 'bez paragonu' : esc(d.podmiot)}</span></b>
       <span>${esc([d.kontrahent, d.magazyn, d.forma_platnosci].filter(Boolean).join(' · '))}</span></span>
     <span class="kwoty-rozl"><b>${esc(kwotaTxt(num(d.brutto)))}</b>
       <span>${rozl ? `rozliczono ${esc(kwotaTxt(rozl))} · ` : ''}zostało ${esc(kwotaTxt(zostaloParagonu(d)))}</span></span>
@@ -259,7 +291,7 @@ function renderLista() {
   const wplywy = otwarteWplywy().filter(t => pasujeSzukaj(t.kontrahent, t.opis, t.kwota, t.konto, t.data_operacji));
   const paragonyWszystkie = otwarteParagony().filter(d => !gotowkowy(d) || stan.gotowkowe || rozliczonoParagonu(kluczParagonu(d)) > 0);
   // rozliczone ponad wartość (np. paragon zmniejszony w Subiekcie po rozliczeniu) – do poprawy
-  const nadplacone = dane.sprzedaz.filter(d => rozliczonoParagonu(kluczParagonu(d)) > 0 && zostaloParagonu(d) < -GROSZE);
+  const nadplacone = paragonyIZamowienia().filter(d => rozliczonoParagonu(kluczParagonu(d)) > 0 && zostaloParagonu(d) < -GROSZE);
   const paragony = paragonyWszystkie.filter(d => pasujeSzukaj(d.numer, d.kontrahent, d.brutto, d.magazyn));
   const sumaW = zaokr(otwarteWplywy().reduce((s, t) => s + zostaloWplywu(t), 0));
   const bezgot = otwarteParagony().filter(d => !gotowkowy(d));
@@ -360,7 +392,7 @@ function renderWplyw(id) {
       ${htmlPowiazanych(rozl, r => {
         if (r.obiekt_typ === 'sprzedaz-bez-paragonu') return `sprzedaż bez paragonu: ${esc(r.uwagi || '')}`;
         if (r.obiekt_typ !== 'paragon') return `bez paragonu: ${esc(r.uwagi || '')}`;
-        const d = dane.sprzedaz.find(x => kluczParagonu(x) === r.obiekt_id);
+        const d = znajdzParagon(r.obiekt_id);
         return d ? `<a href="#rozliczenie/p:${encodeURIComponent(r.obiekt_id)}">${esc(d.numer)}</a> <span class="znacznik">${esc(d.podmiot)}</span> ${esc(d.kontrahent || '')} ${esc(dataKrotko(d.data))}` : esc(r.uwagi || r.obiekt_id);
       })}
       ${zostalo > 0.004 ? `<div class="reszta-rozl">
@@ -386,7 +418,7 @@ function renderWplyw(id) {
 }
 
 function renderParagon(klucz) {
-  const d = dane.sprzedaz.find(x => kluczParagonu(x) === klucz);
+  const d = znajdzParagon(klucz);
   if (!d) { $('#widok').innerHTML = '<section class="ekran"><p class="pusto">Nie ma takiego paragonu na tym urządzeniu.</p><a href="#rozliczenia">Rozliczenia</a></section>'; return; }
   const rozl = aktywne().filter(r => r.obiekt_typ === 'paragon' && r.obiekt_id === klucz);
   const zostalo = zostaloParagonu(d);
@@ -395,7 +427,8 @@ function renderParagon(klucz) {
   $('#widok').innerHTML = `
   <section class="ekran rozliczenia-ekran">
     <a class="wstecz" href="#rozliczenia">Rozliczenia</a>
-    <div class="naglowek-sekcji"><h1>Paragon ${esc(d.numer)}</h1><span class="znacznik">${esc(d.podmiot)}</span></div>
+    <div class="naglowek-sekcji"><h1>${d.zamowienie ? 'Zamówienie' : 'Paragon'} ${esc(d.numer)}</h1><span class="znacznik">${d.zamowienie ? 'Stoisko – bez paragonu' : esc(d.podmiot)}</span></div>
+    ${d.zamowienie ? '<p class="podpowiedz">Zamówienie ze Stoiska nie ma jeszcze paragonu w Subiekcie. Rozliczenie przejdzie samo na paragon, gdy wkleisz sprzedaż z Subiektu (rozpoznanie po numerze paragonu w zamówieniu albo po dacie, kwocie i kliencie „ST…”).</p>' : ''}
     <div class="karta-ustawien">
       <dl class="info">
         <div><dt>Data, magazyn</dt><dd>${esc(dataSlownie(d.data))} · ${esc(d.magazyn || '')}</dd></div>
@@ -423,7 +456,13 @@ function renderParagon(klucz) {
   </section>`;
 }
 
+let przenoszenie = false;
 function render(arg) {
+  if (!arg && !przenoszenie) {
+    przenoszenie = true;
+    przeniesRozliczeniaZamowien().then(n => { if (n && location.hash.replace(/^#/, '') === 'rozliczenia') { toast(`${n} ${odmiana(n, 'rozliczenie zamówienia przeszło', 'rozliczenia zamówień przeszły', 'rozliczeń zamówień przeszło')} na paragony z Subiektu.`, 'ok'); bezSkoku(rysujBiezacy); } })
+      .catch(() => {}).finally(() => { przenoszenie = false; });
+  }
   if ((arg || null) !== stan.biezacy && (arg || stan.biezacy)) stan.szukaj = '';   // wyszukiwanie dotyczy jednego ekranu
   stan.biezacy = arg || null;
   if (arg !== 'auto') stan.auto = null;
@@ -461,7 +500,7 @@ async function klik(e) {
   }
   if (akcja === 'rozlicz') {
     const t = dane.transakcje.find(x => x.id === b.dataset.t);
-    const d = dane.sprzedaz.find(x => kluczParagonu(x) === b.dataset.p);
+    const d = znajdzParagon(b.dataset.p);
     if (!t || !d) return;
     const pole = b.closest('.wiersz-rozl').querySelector('input[name="kwota-rozl"]');
     b.disabled = true;

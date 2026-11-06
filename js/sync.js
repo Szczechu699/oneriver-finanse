@@ -17,6 +17,7 @@ export const KLUCZE = {
   IMPORTY: r => String(r.partia),
   ROZLICZENIA: r => String(r.id),
   ZAMOWIENIA: r => String(r.id),        // zamówienia ze Stoiska (rozliczenia, kasa)
+  KLIENCI: r => String(r.id),           // klienci Stoiska (nazwisko do dopasowania wpływu)
   KASA_LICZENIA: r => String(r.id),     // liczenia kasy (Elsterska, Grażynka, wydarzenia)
 };
 let kartyPobierane = Object.keys(KLUCZE);
