@@ -1,7 +1,10 @@
 // Stałe aplikacji stoiska. Dane do płatności są domyślne dla wszystkich urządzeń;
 // na danym urządzeniu można je zmienić w Ustawieniach.
 
-export const WERSJA = '0.5.1';
+export const WERSJA = '0.5.2';
+
+// Stoisko ma własny adres (osobna „strona” dla telefonu – inaczej Chrome na Androidzie myli je z Finansami).
+export const ADRES_STOISKA = 'https://oneriver-stoisko.github.io/';
 export const WYMAGANE_API = 9;
 
 // Transport przy wysyłce: osobna pozycja zamówienia (na paragonie usługa) – symbol z Subiekta i domyślna kwota.

@@ -12,6 +12,7 @@ import { ekran as ekranKlientow } from './klienci.js';
 import { ekran as ekranSklepu } from './sklep.js';
 import { ekran as ekranPoziomow } from './poziomy.js';
 import { ileDoPotwierdzenia } from './lista.js';
+import { ADRES_STOISKA } from './konfiguracja.js';
 
 const TRASY = {
   nowe: [ekranNowe, 'nowe', 'Nowe zamówienie'],
@@ -81,7 +82,17 @@ function pokazStan(s) {
   }
 }
 
+function pokazPrzeprowadzke() {
+  if (location.hostname === new URL(ADRES_STOISKA).hostname || location.hostname === 'localhost' || location.hostname === '127.0.0.1') return;
+  const d = document.createElement('div');
+  d.className = 'przeprowadzka';
+  d.innerHTML = `<b>Stoisko ma nowy adres.</b> Gdy u góry jest „Zsynchronizowano”, zainstaluj Stoisko z
+    <a href="${ADRES_STOISKA}">${ADRES_STOISKA.replace('https://', '').replace(/\/$/, '')}</a>, wpisz adres API i token, a tę wersję odinstaluj.`;
+  document.body.prepend(d);
+}
+
 async function start() {
+  pokazPrzeprowadzke();
   await wczytaj();
   render();
   sync.obserwuj(pokazStan);
