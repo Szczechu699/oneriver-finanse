@@ -36,13 +36,17 @@ export const KOLORY_KONT = ['#E2B93B', '#4C9BD6', '#D9544F', '#6B4F3F', '#3BB3C3
 export const KOLORY = ['#CDE6DF', '#F3DDA9', '#E8D2E2', '#D2E3F3', '#DDE8C6', '#F1D5CB', '#DBD5EF', '#C8DED3', '#EEE3C1', '#D9DCE0',
   '#F6C9C9', '#C9E8F6', '#FBE3B8', '#D7F0D2', '#E5D7F6', '#F7D9EC'];
 
+/** Konta. Konto prywatne (atrybut „prywatne”) widzą tylko użytkownicy z dostępem do transakcji prywatnych;
+ *  wpisy na nim mają podmiot „Prywatne” (serwer ukrywa je przed pozostałymi). */
 export const konta = (zArchiwum = false) => lista('konta', zArchiwum).map((k, i) => {
   const a = atrybuty(k);
+  const prywatne = a.prywatne === true || a.prywatne === 'true';
   return {
     ...k, waluta: a.waluta || '', kolor: a.kolor || KOLORY_KONT[i % KOLORY_KONT.length], typKonta: a.typ || 'bank',
-    podmiot: a.podmiot || '', wirtualne: Boolean(a.wirtualne) || a.typ === 'skarbonka',
+    podmiot: prywatne ? 'Prywatne' : (a.podmiot || ''), wirtualne: Boolean(a.wirtualne) || a.typ === 'skarbonka', prywatne,
   };
-});
+}).filter(k => !k.prywatne || mozePrywatne());
+export const czyKontoPrywatne = nazwa => Boolean(lista('konta', true).find(k => k.nazwa === nazwa && (atrybuty(k).prywatne === true || atrybuty(k).prywatne === 'true')));
 /** Status nowego wpisu na koncie: gotówka nie czeka na wyciąg, Skarbonka to tylko zapis. */
 export const BEZ_WYCIAGU = 'bez wyciągu';
 export function statusDlaKonta(konto, poprzedni = '') {

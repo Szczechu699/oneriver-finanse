@@ -906,3 +906,7 @@ tr.wycofany td { opacity: .6; }
 .wybor-rozl { display: grid; place-items: center; }
 .wybor-rozl input { width: 20px; height: 20px; }
 .pasek-masowy select { color: var(--atrament); }
+
+/* Konto prywatne – przełącznik z opisem */
+.przelacznik.opis { white-space: normal; align-items: flex-start; font-size: 14px; line-height: 1.4; }
+.przelacznik.opis input { flex: none; margin-top: 2px; }

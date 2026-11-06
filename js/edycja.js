@@ -7,6 +7,7 @@ import {
   ikona, kolorKategorii, tytuly, stanKont, kategorieBudzetu, podmioty, saldoNaDzien, KOREKTA, podmiotKonta,
 } from './dane.js';
 import { ikonaSvg } from './ikony.js';
+import { mozePrywatne } from './api.js';
 
 const EMOJI = ['📦', '🚚', '👥', '🏠', '💡', '🧺', '🛒', '🏷️', '🖨️', '🛠️', '💻', '📱', '🏛️', '🧾', '✈️', '🚗', '⛽', '🍽️', '☕',
   '🎪', '🪶', '🧭', '🌍', '🎁', '📚', '🎓', '💊', '🧴', '👕', '💍', '🌿', '🎵', '🥁', '📣', '📸', '🏦', '💳', '💰', '📈', '🤝', '❓'];
@@ -95,7 +96,7 @@ function renderKonto(id) {
       klucz: id, oryginal: k, nazwa: k?.nazwa || '', waluta: k ? (a.waluta || '') : 'PLN', typ: a.typ || 'bank',
       kolor: k?.kolor || KOLORY_KONT[konta(true).length % KOLORY_KONT.length], saldo: a.saldo_poczatkowe !== undefined && a.saldo_poczatkowe !== '' ? liczbaNaTekst(a.saldo_poczatkowe) : '',
       data_salda: a.data_salda || '', identyfikator: a.iban || a.email || a.identyfikator || '', aktywne: k ? aktywna(k) : true,
-      podmiot: a.podmiot || '',
+      podmiot: a.podmiot || '', prywatne: a.prywatne === true || a.prywatne === 'true',
     };
   }
   $('#widok').innerHTML = `
@@ -109,9 +110,12 @@ function renderKonto(id) {
       <fieldset class="pole"><legend>Rodzaj</legend><div class="chipy">${[['bank', 'Konto bankowe'], ['karta', 'Karta'], ['portfel', 'Portfel elektroniczny'], ['gotowka', 'Gotówka'], ['skarbonka', 'Skarbonka (wirtualna)']].map(([t, e]) =>
         `<button type="button" class="chip" data-akcja="k-typ" data-v="${t}" aria-pressed="${kf.typ === t}">${e}</button>`).join('')}</div>
         ${kf.typ === 'skarbonka' ? '<span class="podpowiedz">Wirtualne konto na cele: przesunięcia do niego nie zmieniają salda prawdziwych kont i nie czekają na wyciąg.</span>' : ''}</fieldset>
-      <fieldset class="pole"><legend>Domyślnie dotyczy</legend><div class="chipy">${[...podmioty(), ''].map(p =>
+      ${mozePrywatne() ? `<label class="pole przelacznik opis"><input type="checkbox" data-akcja="k-prywatne" ${kf.prywatne ? 'checked' : ''}>
+        <span><b>Konto prywatne</b> – widzi je tylko użytkownik z dostępem do transakcji prywatnych (Darius). Wpisy na nim są prywatne;
+        przeksięgowanie z konta firmowego na to konto jest widoczne jako wypływ z konta firmowego.</span></label>` : ''}
+      ${kf.prywatne ? '' : `<fieldset class="pole"><legend>Domyślnie dotyczy</legend><div class="chipy">${[...podmioty(), ''].map(p =>
         `<button type="button" class="chip" data-akcja="k-podmiot" data-v="${esc(p)}" aria-pressed="${kf.podmiot === p}">${esc(p || 'Bez domyślnego')}</button>`).join('')}</div>
-        <span class="podpowiedz">Podstawi się przy wpisie z tego konta; zawsze można zmienić.</span></fieldset>
+        <span class="podpowiedz">Podstawi się przy wpisie z tego konta; zawsze można zmienić.</span></fieldset>`}
       <fieldset class="pole"><legend>Kolor</legend><div class="kolory">${KOLORY_KONT.map(k =>
         `<button type="button" data-akcja="k-kolor" data-v="${k}" aria-pressed="${kf.kolor === k}" style="--k:${k}" aria-label="Kolor ${k}"></button>`).join('')}</div></fieldset>
       <div class="rzad">
@@ -200,7 +204,7 @@ async function zapiszKonto(archiwizuj = null) {
   const o = kf.oryginal;
   const atr = {
     ...atrybuty(o),   // zachowuje m.in. drugi numer rachunku i profil importu
-    waluta: kf.waluta, typ: kf.typ, kolor: kf.kolor, podmiot: kf.podmiot, wirtualne: kf.typ === 'skarbonka',
+    waluta: kf.waluta, typ: kf.typ, kolor: kf.kolor, podmiot: kf.prywatne ? 'Prywatne' : kf.podmiot, wirtualne: kf.typ === 'skarbonka', prywatne: kf.prywatne,
     saldo_poczatkowe: kf.saldo === '' ? '' : zaokr(liczba(kf.saldo)), data_salda: kf.data_salda,
     [kf.identyfikator.includes('@') ? 'email' : 'iban']: kf.identyfikator,
   };
@@ -216,6 +220,16 @@ async function zapiszKonto(archiwizuj = null) {
       if (!tak) return;
     }
     paczki.push(...zm);
+  }
+  // Konto staje się prywatne: dotychczasowe wpisy z tego konta też oznaczamy jako prywatne (przeksięgowania NA to konto zostają firmowe).
+  if (kf.prywatne && !(atrybuty(o).prywatne === true)) {
+    const nazwa = o?.nazwa || kf.nazwa;
+    const doZmiany = dane.transakcje.filter(t => t.konto === nazwa && t.podmiot !== 'Prywatne');
+    if (doZmiany.length) {
+      const tak = await okno('Oznaczyć wpisy jako prywatne?', `<p>Na koncie jest ${doZmiany.length} ${odmiana(doZmiany.length, 'wpis', 'wpisy', 'wpisów')} z innym podmiotem. Oznaczyć je jako prywatne (znikną dla Olka)?</p>`,
+        [{ etykieta: 'Zostaw jak są', wartosc: false, klasa: 'drugorzedny' }, { etykieta: 'Oznacz jako prywatne', wartosc: true, autofocus: true }]);
+      if (tak) paczki.push({ karta: 'TRANSAKCJE', wiersze: doZmiany.map(t => ({ ...t, podmiot: 'Prywatne' })) });
+    }
   }
   await sync.zapiszWiele(paczki);
   await wczytajDane();
@@ -462,6 +476,7 @@ async function klik(e) {
     else if (akcja === 'k-typ') kf.typ = v;
     else if (akcja === 'k-kolor') kf.kolor = v;
     else if (akcja === 'k-podmiot') kf.podmiot = v;
+    else if (akcja === 'k-prywatne') kf.prywatne = b.checked;
     else if (akcja === 'k-archiwum') { await zapiszKonto(kf.aktywne); return; }
     else return;
     bezSkoku(() => renderKonto(kf.klucz));
