@@ -757,6 +757,10 @@ li.prywatna .kwota-wiersza { color: var(--szary) !important; }
 .paragon-opis { display: grid; min-width: 0; }
 .paragon-opis span { font-size: 13.5px; color: var(--szary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .paragon-forma { font-size: 13.5px; color: var(--szary); }
+.paragon-opis b .znacznik { font-size: 11.5px; margin-left: 4px; vertical-align: 1px; }
+.paragon-opis .znaczniki-rozl { display: flex; flex-wrap: wrap; gap: 4px; white-space: normal; overflow: visible; margin-top: 3px; }
+.paragon-opis .znaczniki-rozl:empty { display: none; }
+.paragon-opis .znaczniki-rozl .znacznik { font-size: 11.5px; text-decoration: none; }
 .paragon-kwota { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .paragon[open] { padding-bottom: 10px; }
 .paragon .tabela { margin: 4px 0 6px; }

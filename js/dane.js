@@ -13,9 +13,29 @@ export async function wczytajDane() {
   // paragony i pozycje usunięte w Subiekcie zostają w arkuszu ze statusem, ale nie liczą się nigdzie
   dane.sprzedazWszystkie = dane.sprzedaz;
   dane.sprzedazPozWszystkie = dane.sprzedazPoz;
-  dane.sprzedaz = dane.sprzedaz.filter(d => !d.status);
+  dane.sprzedaz = dane.sprzedaz.filter(d => !d.status).map(uzupelnijPlatnosc);
   dane.sprzedazPoz = dane.sprzedazPoz.filter(p => !p.status);
 }
+
+const liczbaSgt = v => { const n = Number(String(v ?? '').replace(/\s/g, '').replace(',', '.')); return isFinite(n) ? n : 0; };
+/**
+ * Paragon z „kredytem kupieckim” (np. z pliku EPP ze Stoiska – płatność BLIK/przelew) ma w Subiekcie zera
+ * we wszystkich kwotach płatności, więc zestawienie pokazuje „Brak danych”. Brakującą część traktujemy jako kredyt kupiecki.
+ */
+export function uzupelnijPlatnosc(d) {
+  const brutto = liczbaSgt(d.brutto);
+  const znane = ['kw_gotowka', 'kw_karta', 'kw_przelew', 'kw_kredyt'].reduce((s, k) => s + liczbaSgt(d[k]), 0);
+  const reszta = zaokr(brutto - znane);
+  if (!(brutto > 0) || reszta < 0.01 || !/^(brak danych)?$/i.test(String(d.forma_platnosci || '').trim())) return d;
+  return { ...d, kw_kredyt: zaokr(liczbaSgt(d.kw_kredyt) + reszta), forma_platnosci: znane > 0.004 ? 'Mieszana' : 'Kredyt kupiecki' };
+}
+
+/** Symbol i nazwa magazynu z Subiektu do wyświetlania (np. „GR – Grażanka”). */
+export const MAGAZYNY_SGT = { INC: 'Elsterska', GR: 'Grażanka', ONE: 'Sklep OFI', GB: 'Wielka Brytania' };
+export const etykietaMagazynu = d => {
+  const s = String(d.magazyn_symbol || '').toUpperCase();
+  return s ? `${s} – ${MAGAZYNY_SGT[s] || d.magazyn || ''}`.replace(/ – $/, '') : (d.magazyn || '(bez magazynu)');
+};
 
 // ── Słownik ──
 export function atrybuty(w) {

@@ -1,5 +1,5 @@
 // Kasa: rozliczanie gotówki (karta KASA_LICZENIA).
-// Kasy: Elsterska (magazyn INC, także ONE), Grażynka (magazyn GR) i każde wydarzenie osobno (zamówienia ze Stoiska z wpisanym wydarzeniem).
+// Kasy: Elsterska (magazyn INC), Grażynka (magazyn GR) i każde wydarzenie osobno (zamówienia ze Stoiska z wpisanym wydarzeniem).
 // Sprzedaż gotówkowa = gotówkowe części zamówień ze Stoiska + paragony gotówkowe z Subiektu (bez paragonów zamówień ze Stoiska
 // i bez zamówień ze sklepu internetowego). Liczenie: saldo konta kasy + nierozliczona sprzedaż = powinno być; wpisujesz, ile jest;
 // zapis księguje utarg (wpływ na konto kasy), ewentualną różnicę i przeksięgowanie do prywatnego konta „Gotówka”.
@@ -24,7 +24,7 @@ export function symbolMagazynu(m) {
   return 'INC';
 }
 const KASY_STALE = [
-  { id: 'ELSTERSKA', nazwa: 'Elsterska', magazyny: ['INC', 'ONE'], opis: 'magazyn INC - Główny', domyslneKonto: 'Kasa OneRiver - magazyn', znacznik: 'INC' },
+  { id: 'ELSTERSKA', nazwa: 'Elsterska', magazyny: ['INC'], opis: 'magazyn INC - Główny', domyslneKonto: 'Kasa OneRiver - magazyn', znacznik: 'INC' },
   { id: 'GRAZYNKA', nazwa: 'Grażynka', magazyny: ['GR'], opis: 'magazyn GR - Grażanka', domyslneKonto: 'Kasa Grażynka', znacznik: 'GR' },
 ];
 const PREFIKS_WYD = 'WYD:';
@@ -54,14 +54,20 @@ const kasaZamowienia = z => (String(z.wydarzenie || '').trim()
 const kasaParagonu = d => {
   const m = String(d.magazyn_symbol || '').toUpperCase();
   if (m === 'GR') return 'GRAZYNKA';
-  if (m === 'INC' || m === 'ONE') return 'ELSTERSKA';
+  if (m === 'INC') return 'ELSTERSKA';
   return null;
 };
 
 // ───────────────────────── zamówienia Stoiska ↔ paragony Subiektu ─────────────────────────
 
 const aktywneZamowienia = () => dane.zamowienia.filter(z => z.status !== 'anulowane' && z.status !== 'nowe');
-const czySklepInternetowy = d => /^integrator/i.test(String(d.kontrahent_id || d.kontrahent_symbol || ''));
+/**
+ * Sklep internetowy = OFI (magazyn ONE): tam „Gotówka” w Subiekcie oznacza zapłatę online, a nie gotówkę w kasie.
+ * (W INCO wszyscy kontrahenci mają symbole „integrator_…” po przeniesieniu bazy, więc symbol niczego nie mówi.)
+ */
+const czySklepInternetowy = d => d.podmiot === 'OFI' || String(d.magazyn_symbol || '').toUpperCase() === 'ONE';
+/** Magazyn zamówienia zgadza się z magazynem paragonu (numery PA powtarzają się w różnych magazynach). */
+const zgodnyMagazyn = (z, p) => !String(z.magazyn || '').trim() || !p.magazyn_symbol || symbolMagazynu(z.magazyn) === String(p.magazyn_symbol).toUpperCase();
 
 /**
  * Para zamówienie Stoiska → paragon z Subiektu: po numerze paragonu wpisanym w zamówieniu,
@@ -77,13 +83,14 @@ export function paryZamowienParagonow() {
   zamowienia.forEach(z => {
     const nr = normTxt(z.nr_dok_sgt).replace(/^pa\s*/, '');
     if (!nr) return;
-    const d = paragony.find(p => !parDoZam.has(kluczP(p)) && normTxt(p.numer).replace(/^pa\s*/, '') === nr);
+    const kand = paragony.filter(p => !parDoZam.has(kluczP(p)) && normTxt(p.numer).replace(/^pa\s*/, '') === nr);
+    const d = kand.find(p => zgodnyMagazyn(z, p)) || (kand.length === 1 ? kand[0] : null);
     if (d) { zamDoPar.set(String(z.id), d); parDoZam.set(kluczP(d), z); }
   });
   // 2) data + kwota + klient ze Stoiska
   zamowienia.forEach(z => {
     if (zamDoPar.has(String(z.id))) return;
-    const d = paragony.find(p => !parDoZam.has(kluczP(p)) && dzien(p.data) === dzien(z.data)
+    const d = paragony.find(p => !parDoZam.has(kluczP(p)) && dzien(p.data) === dzien(z.data) && zgodnyMagazyn(z, p)
       && Math.abs(num(p.brutto) - num(z.suma_brutto)) < 0.011
       && (/^ST/i.test(String(p.kontrahent_id || p.kontrahent_symbol || '')) || !String(p.kontrahent_id || p.kontrahent_symbol || '').trim()));
     if (d) { zamDoPar.set(String(z.id), d); parDoZam.set(kluczP(d), z); }
@@ -98,6 +105,27 @@ function pozycjeLiczenia(l) {
   try { return JSON.parse(l.pozycje || '[]'); } catch { return []; }
 }
 const rozliczoneKlucze = () => new Set(aktywneLiczenia().flatMap(pozycjeLiczenia));
+
+/** Dane do sprawdzania gotówki wielu paragonów naraz (liczone raz). */
+export function kontekstKasy() {
+  const { parDoZam } = paryZamowienParagonow();
+  const zWplywem = new Set(dane.rozliczenia.filter(r => r.status !== 'anulowane' && r.obiekt_typ === 'paragon').map(r => r.obiekt_id));
+  return { parDoZam, rozl: rozliczoneKlucze(), zWplywem };
+}
+/**
+ * Gotówkowa część paragonu i czy jest już rozliczona w kasie (albo z wpływem na konto).
+ * null – paragon bez gotówki albo ze sklepu internetowego (OFI).
+ */
+export function gotowkaParagonu(d, ctx = kontekstKasy()) {
+  const kwota = zaokr(num(d.kw_gotowka));
+  if (kwota <= 0 || czySklepInternetowy(d)) return null;
+  const k = `${d.podmiot}|${d.dok_id}`;
+  if (ctx.zWplywem.has(k)) return { kwota, rozliczona: true, gdzie: 'z wpływem' };
+  const z = ctx.parDoZam.get(k);
+  const klucz = z ? 'Z:' + z.id : 'P:' + k;
+  const kasa = z ? kasaZamowienia(z) : kasaParagonu(d);
+  return { kwota, rozliczona: ctx.rozl.has(klucz), gdzie: kasa ? (kasaZId(kasa)?.nazwa || '') : '', zamowienie: z?.id || '' };
+}
 
 /** Wszystkie pozycje sprzedaży gotówkowej (z przypisaną kasą). */
 function sprzedazGotowkowa() {

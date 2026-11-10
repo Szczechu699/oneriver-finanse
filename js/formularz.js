@@ -388,7 +388,7 @@ function htmlRozliczenia() {
   const rozl = zaokr(doRozl.reduce((s, o) => s + rozliczonoTransakcji(o.id), 0));
   const zostalo = zaokr(doRozl.reduce((s, o) => s + zostaloWplywu(o), 0));
   return `<div class="pasek-rozliczenia">
-    <span>Rozliczenie z paragonami: ${rozl ? `rozliczono <b>${esc(kwotaTxt(rozl, doRozl[0].waluta))}</b>, ` : ''}${zostalo > 0.004 ? `zostało <b>${esc(kwotaTxt(zostalo, doRozl[0].waluta))}</b>` : 'w całości rozliczony'}.</span>
+    <span>Rozliczenie z paragonami: ${rozl ? `rozliczono <b>${esc(kwotaTxt(rozl))}</b>, ` : ''}${zostalo > 0.004 ? `zostało <b>${esc(kwotaTxt(zostalo))}</b>` : 'w całości rozliczony'}.</span>
     <a class="przycisk-maly" href="#rozliczenie/${encodeURIComponent((doRozl.find(o => zostaloWplywu(o) > 0.004) || doRozl[0]).id)}">${zostalo > 0.004 ? 'Rozlicz z paragonem' : 'Pokaż rozliczenie'}</a>
   </div>`;
 }

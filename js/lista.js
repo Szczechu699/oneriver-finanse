@@ -274,7 +274,7 @@ function wiersz(g) {
     t.status === 'anulowana' ? '<span class="znacznik anul">anulowana</span>' : '',
     t.planowana_id ? '<span class="znacznik">z planu</span>' : '',
     czyKorekta(t) ? '<span class="znacznik">korekta salda</span>' : '',
-    czyWplywDoRozliczenia(t) && zostaloWplywu(t) > 0.004 && dane.sprzedaz.length ? `<span class="znacznik czeka">do rozliczenia ${esc(kwotaTxt(zostaloWplywu(t), t.waluta))}</span>` : '',
+    czyWplywDoRozliczenia(t) && zostaloWplywu(t) > 0.004 && dane.sprzedaz.length ? `<span class="znacznik czeka">do rozliczenia ${esc(kwotaTxt(zostaloWplywu(t)))}</span>` : '',
     t.typ === 'wpływ' && rozliczonoTransakcji(t.id) > 0 && zostaloWplywu(t) <= 0.004 ? '<span class="znacznik potw">rozliczona z paragonem</span>' : '',
     zal ? `<span class="znacznik">${zal} ${odmiana(zal, 'załącznik', 'załączniki', 'załączników')}</span>` : '',
     g.czesci.some(czekaNaWysylke) ? '<span class="znacznik wysylka">do wysłania</span>' : '',

@@ -2,16 +2,19 @@
 // raport za wybrany okres oraz ekran wklejania (#sprzedaz/wklej).
 
 import { $, esc, zaokr, fmt2, kwotaTxt, dataLok, dodajDni, przesunDate, roznicaDni, dataKrotko, nazwaMiesiaca, odmiana, toast } from './util.js';
-import { dane, wczytajDane } from './dane.js';
+import { dane, wczytajDane, uzupelnijPlatnosc, etykietaMagazynu } from './dane.js';
 import * as sync from './sync.js';
 import { wersjaApi } from './api.js';
 import { przedzialy } from './podsumowanie.js';
 import { ikonaSvg } from './ikony.js';
-import { sprzedazBezParagonu } from './rozliczenia.js';
+import { sprzedazBezParagonu, zostaloParagonu, bezgotowkowo } from './rozliczenia.js';
+import { kontekstKasy, gotowkaParagonu } from './kasa.js';
 
 const PODMIOTY_SGT = ['INCO', 'OFI'];
 const OKRESY = [['ten-miesiac', 'Ten miesiąc'], ['poprzedni', 'Poprzedni miesiąc'], ['kwartal', 'Ten kwartał'], ['rok', 'Ten rok'], ['12m', 'Ostatnie 12 miesięcy'], ['wlasny', 'Własny']];
-const FORMY = [['kw_gotowka', 'Gotówka'], ['kw_karta', 'Karta'], ['kw_przelew', 'Przelew'], ['kw_kredyt', 'Kredyt']];
+const FORMY = [['kw_gotowka', 'Gotówka'], ['kw_karta', 'Karta'], ['kw_przelew', 'Przelew'], ['kw_kredyt', 'Kredyt kupiecki']];
+// Filtr „Rozliczenie”: bezgotówkowa część paragonu z wpływami na konto, gotówkowa – w kasie.
+const ROZL = [['bez-ok', 'Bezgotówkowe rozliczone'], ['bez-nie', 'Bezgotówkowe do rozliczenia'], ['got-ok', 'Gotówka rozliczona w kasie'], ['got-nie', 'Gotówka nierozliczona']];
 
 // Kolejność kolumn zestawienia – używana, gdy wklejony tekst nie ma wiersza nagłówka.
 const KOLUMNY_SGT = ['podmiot', 'dok_id', 'typ', 'numer', 'data', 'magazyn_symbol', 'magazyn', 'kontrahent_symbol', 'kontrahent',
@@ -25,7 +28,7 @@ const POLA_POZ = ['status', 'dok_id', 'symbol', 'nazwa', 'grupa', 'ilosc', 'jm',
 
 const stan = {
   okres: 'ten-miesiac', od: '', do: '', panel: false,
-  podmioty: new Set(), magazyny: new Set(), formy: new Set(),
+  podmioty: new Set(), magazyny: new Set(), formy: new Set(), rozl: new Set(),
   ileParagonow: 30, tekst: '', plik: '', wynik: null, oznaczUsuniete: true,
 };
 
@@ -76,10 +79,26 @@ const num = v => {
 };
 const kluczDok = d => `${d.podmiot}|${d.dok_id}`;
 
+/** Stan rozliczenia paragonu: bez = część bezgotówkowa z wpływami, got = gotówka w kasie ('ok' / 'nie' / null – nie dotyczy). */
+let ctxKasy = null;
+function rozliczenie(d) {
+  if (!ctxKasy) ctxKasy = kontekstKasy();
+  const g = gotowkaParagonu(d, ctxKasy);
+  const czescBez = bezgotowkowo(d) > 0.004 && num(d.brutto) > 0;
+  return {
+    bez: czescBez ? (zostaloParagonu(d) <= 0.1 ? 'ok' : 'nie') : null, zostaloBez: czescBez ? zostaloParagonu(d) : 0,
+    got: g ? (g.rozliczona ? 'ok' : 'nie') : null, gotowka: g,
+  };
+}
+
 function pasuje(d) {
   if (stan.podmioty.size && !stan.podmioty.has(d.podmiot)) return false;
-  if (stan.magazyny.size && !stan.magazyny.has(d.magazyn || '')) return false;
+  if (stan.magazyny.size && !stan.magazyny.has(etykietaMagazynu(d))) return false;
   if (stan.formy.size && !stan.formy.has(d.forma_platnosci || '')) return false;
+  if (stan.rozl.size) {
+    const r = rozliczenie(d);
+    if (![...stan.rozl].some(f => (f.startsWith('bez') ? r.bez : r.got) === f.slice(4))) return false;
+  }
   return true;
 }
 
@@ -142,11 +161,14 @@ function wykres(kubly, szer) {
 function panelFiltrow() {
   const grupa = (nazwa, tytul, opcje, wybrane) => `<fieldset class="grupa-filtru"><legend>${esc(tytul)}</legend><div class="chipy male">${opcje.map(v =>
     `<button type="button" class="chip" data-akcja="f-${nazwa}" data-v="${esc(v)}" aria-pressed="${wybrane.has(v)}">${esc(v || '(brak)')}</button>`).join('')}</div></fieldset>`;
-  const unikalne = pole => [...new Set(dane.sprzedaz.map(d => d[pole] || ''))].sort((a, b) => a.localeCompare(b, 'pl'));
+  const unikalne = pole => [...new Set(dane.sprzedaz.map(d => (pole === 'magazyn' ? etykietaMagazynu(d) : d[pole] || '')))].sort((a, b) => a.localeCompare(b, 'pl'));
+  const rozl = `<fieldset class="grupa-filtru"><legend>Rozliczenie</legend><div class="chipy male">${ROZL.map(([v, e]) =>
+    `<button type="button" class="chip" data-akcja="f-rozl" data-v="${v}" aria-pressed="${stan.rozl.has(v)}">${esc(e)}</button>`).join('')}</div></fieldset>`;
   return `<div class="panel-filtrow">
     ${grupa('podmioty', 'Podmiot', PODMIOTY_SGT, stan.podmioty)}
     ${grupa('magazyny', 'Magazyn', unikalne('magazyn'), stan.magazyny)}
     ${grupa('formy', 'Forma płatności', unikalne('forma_platnosci'), stan.formy)}
+    ${rozl}
     <div class="przyciski"><button type="button" class="drugorzedny" data-akcja="wyczysc">Wyczyść filtry</button>
       <button type="button" data-akcja="panel">Gotowe</button></div>
   </div>`;
@@ -159,11 +181,21 @@ function zmiana(teraz, wczesniej) {
   return `${p > 0 ? '▲' : '▼'} ${fmt2.format(Math.abs(p)).replace(/,00$/, '')}% wobec poprzedniego okresu`;
 }
 
+function htmlRozliczenia(d) {
+  const r = rozliczenie(d);
+  const z = [];
+  if (r.bez === 'ok') z.push('<span class="znacznik potw">przelew rozliczony</span>');
+  else if (r.bez === 'nie') z.push(`<a class="znacznik czeka" href="#rozliczenie/p:${encodeURIComponent(kluczDok(d))}">do rozliczenia ${esc(kwotaTxt(r.zostaloBez))}</a>`);
+  if (r.got === 'ok') z.push(`<span class="znacznik potw">gotówka rozliczona${r.gotowka.gdzie && r.gotowka.gdzie !== 'z wpływem' ? ` (${esc(r.gotowka.gdzie)})` : ''}</span>`);
+  else if (r.got === 'nie') z.push(`<span class="znacznik czeka">gotówka ${esc(kwotaTxt(r.gotowka.kwota))} – kasa ${esc(r.gotowka.gdzie || '?')}</span>`);
+  return z.join('');
+}
+
 function htmlParagonu(d, poz) {
   return `<details class="paragon">
     <summary>
       <span class="paragon-data">${esc(dataKrotko(d.data))}</span>
-      <span class="paragon-opis"><b>${esc(d.numer)}</b><span>${esc([d.podmiot, d.magazyn, d.kontrahent].filter(Boolean).join(' · '))}</span></span>
+      <span class="paragon-opis"><b>${esc(d.numer)} <span class="znacznik magazyn-znacznik">${esc([d.podmiot, d.magazyn_symbol].filter(Boolean).join(' · '))}</span></b><span>${esc(d.kontrahent || '')}</span><span class="znaczniki-rozl">${htmlRozliczenia(d)}</span></span>
       <span class="paragon-forma">${esc(d.forma_platnosci || '')}</span>
       <b class="paragon-kwota">${esc(kwotaTxt(num(d.brutto)))}</b>
     </summary>
@@ -185,6 +217,7 @@ function renderRaport() {
       </div></section>`;
     return;
   }
+  ctxKasy = null;      // stan rozliczeń liczony na nowo przy każdym rysowaniu
   const [od, do_] = zakres();
   const pop = okresPoprzedni(od, do_);
   const dok = dokumentyOkresu(od, do_);
@@ -192,7 +225,7 @@ function renderRaport() {
   const klucze = new Set(dok.map(kluczDok));
   const poz = dane.sprzedazPoz.filter(p => klucze.has(`${p.podmiot}|${p.dok_id}`));
   // sprzedaż bez paragonu: wpływy oznaczone w Rozliczeniach (tylko gdy nie filtrujesz magazynu ani formy płatności)
-  const bezPar = (a, b) => (stan.magazyny.size || stan.formy.size ? [] : sprzedazBezParagonu(a, b)
+  const bezPar = (a, b) => (stan.magazyny.size || stan.formy.size || stan.rozl.size ? [] : sprzedazBezParagonu(a, b)
     .filter(x => !stan.podmioty.size || stan.podmioty.has(x.t.podmiot)));
   const bez = bezPar(od, do_);
   const sumaBez = zaokr(bez.reduce((a, x) => a + x.kwota, 0));
@@ -200,7 +233,7 @@ function renderRaport() {
   const suma = zaokr(sumaParagony + sumaBez);
   const sumaPop = zaokr(dokPop.reduce((a, d) => a + num(d.brutto), 0) + bezPar(pop.od, pop.do).reduce((a, x) => a + x.kwota, 0));
   const bezgotowkowe = zaokr(dok.reduce((a, d) => a + num(d.kw_karta) + num(d.kw_przelew) + num(d.kw_kredyt), 0));
-  const nFiltrow = stan.podmioty.size + stan.magazyny.size + stan.formy.size;
+  const nFiltrow = stan.podmioty.size + stan.magazyny.size + stan.formy.size + stan.rozl.size;
 
   const kubly = przedzialy(od, do_).map(k => ({ ...k, v: 0, n: 0 }));
   dok.forEach(d => {
@@ -245,7 +278,7 @@ function renderRaport() {
       <div class="wskaznik wyroznione"><span class="etykieta-wsk"><i class="znak seria-wplywy"></i>Sprzedaż brutto</span><b>${esc(kwotaTxt(suma))}</b><span class="zmiana">${sumaBez ? `paragony ${esc(kwotaTxt(sumaParagony))} + bez paragonu ${esc(kwotaTxt(sumaBez))} · ` : ''}${esc(zmiana(suma, sumaPop))}</span></div>
       <div class="wskaznik"><span class="etykieta-wsk">Paragony</span><b>${dok.length}</b><span class="zmiana">poprzednio ${dokPop.length}</span></div>
       <div class="wskaznik"><span class="etykieta-wsk">Średni paragon</span><b>${esc(kwotaTxt(dok.length ? zaokr(sumaParagony / dok.length) : 0))}</b><span class="zmiana">${poz.length} ${odmiana(poz.length, 'pozycja', 'pozycje', 'pozycji')}</span></div>
-      <div class="wskaznik"><span class="etykieta-wsk">Karta, przelew, kredyt</span><b>${esc(kwotaTxt(bezgotowkowe))}</b><span class="zmiana">do sprawdzenia z wyciągami</span></div>
+      <div class="wskaznik"><span class="etykieta-wsk">Karta, przelew, kredyt</span><b>${esc(kwotaTxt(bezgotowkowe))}</b><span class="zmiana">${(() => { const d = zaokr(dok.reduce((a, x) => a + rozliczenie(x).zostaloBez, 0)); return d > 0.1 ? `<a href="#rozliczenia">do rozliczenia z wpływami ${esc(kwotaTxt(d))}</a>` : 'rozliczone z wpływami'; })()}</span></div>
     </div>
     <p class="uwagi-podsumowania">Paragony z Subiektu GT${nFiltrow ? ', według filtrów' : ''}. Porównanie ${pop.doDzis ? 'do dziś ' : ''}z okresem ${esc(opisZakresu(pop.od, pop.do))}.${ostatnieWklejenie ? ` Ostatnio wklejono ${esc(dataKrotko(ostatnieWklejenie.slice(0, 10)))}.` : ''}</p>
 
@@ -258,7 +291,7 @@ function renderRaport() {
           <tbody>${kubly.filter(k => k.n).map(k => `<tr><td>${esc(k.pelna)}</td><td class="liczba">${k.n}</td><td class="liczba">${esc(kwotaTxt(k.v))}</td></tr>`).join('') || '<tr><td colspan="3">Brak danych</td></tr>'}</tbody></table>
         </details>
       </article>
-      <article class="panel"><header><h2>Według magazynu</h2></header>${ranking(sumuj(dok, d => [[d.magazyn || '(bez magazynu)', num(d.brutto)]]))}</article>
+      <article class="panel"><header><h2>Według magazynu</h2></header>${ranking(sumuj(dok, d => [[etykietaMagazynu(d), num(d.brutto)]]))}</article>
       ${bez.length ? `<article class="panel"><header><h2>Sprzedaż bez paragonu</h2><span class="podtytul">z wpływów oznaczonych w Rozliczeniach</span></header>${ranking(sumuj(bez, x => [[x.zrodlo || 'Sprzedaż bez paragonu', x.kwota]]))}
         <details class="tabela-wykresu"><summary>Pokaż wpływy (${bez.length})</summary><table class="tabela"><tbody>${bez.map(x => `<tr><td>${esc(dataKrotko(x.t.data_operacji))}</td><td><a href="#rozliczenie/${encodeURIComponent(x.t.id)}">${esc(x.t.kontrahent || '')}</a></td><td>${esc(x.t.podmiot || '')}</td><td class="liczba">${esc(kwotaTxt(x.kwota))}</td></tr>`).join('')}</tbody></table></details></article>` : ''}
       <article class="panel"><header><h2>Według formy płatności</h2></header>${ranking(sumuj(dok, platnosci))}</article>
@@ -392,6 +425,7 @@ export function przeanalizuj(tekst) {
     w.netto = zaokr(w.netto);
     w.liczba_pozycji = d.pozycje.size;
     w.brutto = zaokr(d.dokumentBrutto || d.sumaPoz);
+    Object.assign(w, uzupelnijPlatnosc(w));       // „Brak danych” z kwotą = kredyt kupiecki
     if (d.dokumentBrutto && Math.abs(d.dokumentBrutto - d.sumaPoz) > 0.02) w.niezgodny = true;
     if (w.niezgodny) { wynik.niezgodne.push(`${w.numer} (${w.podmiot}): paragon ${kwotaTxt(d.dokumentBrutto)}, pozycje ${kwotaTxt(zaokr(d.sumaPoz))}`); delete w.niezgodny; }
     wynik.suma += w.brutto;
@@ -400,7 +434,7 @@ export function przeanalizuj(tekst) {
     if (!wynik.od || w.data < wynik.od) wynik.od = w.data;
     if (!wynik.do || w.data > wynik.do) wynik.do = w.data;
     platnosci(w).forEach(([n, v]) => wynik.formy.set(n, zaokr((wynik.formy.get(n) || 0) + v)));
-    const mag = w.magazyn || '(bez magazynu)';
+    const mag = etykietaMagazynu(w);
     wynik.magazyny.set(mag, zaokr((wynik.magazyny.get(mag) || 0) + w.brutto));
 
     const stary = istniejace.get(klucz);
@@ -504,7 +538,7 @@ async function zapiszSprzedaz(przycisk) {
     stan.od = w.od.slice(0, 7) + '-01';
     stan.do = w.do;
     if (w.od.slice(0, 7) === w.do.slice(0, 7)) stan.do = dodajDni(przesunDate(stan.od, 'miesiąc', 1), -1);
-    stan.podmioty.clear(); stan.magazyny.clear(); stan.formy.clear();
+    stan.podmioty.clear(); stan.magazyny.clear(); stan.formy.clear(); stan.rozl.clear();
     stan.tekst = ''; stan.wynik = null;
     location.hash = '#sprzedaz';
   } catch (e) {
@@ -536,7 +570,7 @@ function klik(e) {
   if (akcja === 'wyczysc-wklejke') { stan.tekst = ''; stan.wynik = null; przerysuj(); return; }
   if (akcja === 'okres') { stan.okres = v; stan.ileParagonow = 30; }
   else if (akcja === 'panel') stan.panel = !stan.panel;
-  else if (akcja === 'wyczysc') { stan.podmioty.clear(); stan.magazyny.clear(); stan.formy.clear(); }
+  else if (akcja === 'wyczysc') { stan.podmioty.clear(); stan.magazyny.clear(); stan.formy.clear(); stan.rozl.clear(); }
   else if (akcja === 'wiecej-paragonow') stan.ileParagonow += 50;
   else if (akcja.startsWith('f-')) { const z = stan[akcja.slice(2)]; if (z.has(v)) z.delete(v); else z.add(v); }
   else return;
