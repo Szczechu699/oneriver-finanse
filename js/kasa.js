@@ -155,6 +155,15 @@ const nierozliczone = (kasaId, doDnia = '9999') => {
 };
 const ostatnieLiczenie = kasaId => aktywneLiczenia().filter(l => l.kasa === kasaId).sort((a, b) => String(b.data).localeCompare(String(a.data)) || String(b.utworzono).localeCompare(String(a.utworzono)))[0];
 
+/** Kasa wydarzenia o tej nazwie: nierozliczona gotówka i ostatnie liczenie (do ekranu wydarzenia). */
+export function kasaWydarzenia(nazwa) {
+  const id = PREFIKS_WYD + String(nazwa || '').trim();
+  const n = nierozliczone(id);
+  const ost = ostatnieLiczenie(id);
+  return { id, nierozliczona: zaokr(n.reduce((s, p) => s + p.kwota, 0)), pozycji: n.length, ostatnie: ost || null,
+    liczen: aktywneLiczenia().filter(l => l.kasa === id).length };
+}
+
 function listaKas() {
   const wydarzenia = new Set();
   sprzedazGotowkowa().forEach(p => { if (p.kasa.startsWith(PREFIKS_WYD)) wydarzenia.add(p.kasa); });

@@ -949,3 +949,61 @@ tr.wycofany td { opacity: .6; }
 .kasa-ruchy li { display: grid; grid-template-columns: 70px 1fr auto; gap: 8px; padding: 4px 0; border-bottom: 1px dotted var(--linia); font-size: 14px; }
 .ostrzezenie { color: #B3261E; font-weight: 600; }
 .podtytul-sekcji { font-size: 18px; margin: 8px 0; }
+
+/* ── wydarzenie: budżet jak tabelka prezesa ── */
+.rzad.cztery { grid-template-columns: 1fr; }
+@media (min-width: 640px) { .rzad.cztery { grid-template-columns: 1fr 1fr; } }
+@media (min-width: 1000px) { .rzad.cztery { grid-template-columns: repeat(4, 1fr); } }
+.wydarzenie-ekran .podtytul-sekcji { margin-top: 26px; }
+.tabela-wyd-kont { overflow-x: auto; border: 1px solid var(--linia); border-radius: var(--r); background: var(--papier); }
+.tabela-wyd { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+.tabela-wyd th { text-align: left; font-size: 12.5px; text-transform: uppercase; letter-spacing: .03em; color: #fff; background: var(--rzeka-ciemna); padding: 9px 8px; white-space: nowrap; }
+.tabela-wyd td { padding: 4px 6px; border-top: 1px solid var(--linia); vertical-align: middle; }
+.tabela-wyd .liczba { text-align: right; white-space: nowrap; }
+.tabela-wyd input { width: 100%; min-width: 90px; min-height: 36px; padding: 4px 8px; border: 1px solid transparent; border-radius: 8px; background: transparent; font: inherit; color: inherit; }
+.tabela-wyd input:hover { border-color: var(--linia); }
+.tabela-wyd input:focus { border-color: var(--rzeka); background: var(--papier); outline: none; }
+.tabela-wyd td.liczba input { text-align: right; min-width: 90px; background: #FFF6D6; }
+@media (prefers-color-scheme: dark) { .tabela-wyd td.liczba input { background: #2E2A18; } }
+.tabela-wyd tfoot td { background: var(--papier-2); padding: 10px 8px; border-top: 2px solid var(--linia); }
+.tabela-wyd tr.rezygnacja td { opacity: .55; }
+.tabela-wyd tr.rezygnacja input[name="pozycja"] { text-decoration: line-through; }
+.tabela-wyd .kwota-fakt { font-weight: 700; padding: 6px 4px; }
+.tabela-wyd .akcje-wyd { white-space: nowrap; text-align: right; }
+.tabela-wyd .ikona-usun { border: 0; background: none; color: var(--szary); font-size: 20px; line-height: 1; padding: 4px 8px; cursor: pointer; border-radius: 8px; }
+.tabela-wyd .ikona-usun:hover { color: var(--czerwien); background: var(--papier-2); }
+.tabela-wyd .chip.male-chip { min-height: 32px; padding: 3px 14px; font-size: 14px; }
+.tabela-wyd tr.auto-wiersz td, .tabela-wyd tr.bez-pozycji td { background: var(--papier-2); padding: 9px 8px; }
+.minus-wyd { color: var(--czerwien); }
+.prog-wyd dl.info { margin-top: 8px; }
+@media (max-width: 760px) {
+  .tabela-wyd thead { display: none; }
+  .tabela-wyd, .tabela-wyd tbody, .tabela-wyd tfoot, .tabela-wyd tr, .tabela-wyd td { display: block; width: 100%; }
+  .tabela-wyd tr { border-top: 1px solid var(--linia); padding: 8px 6px; }
+  .tabela-wyd td { border: 0; display: grid; grid-template-columns: 110px 1fr; align-items: center; gap: 6px; padding: 2px 4px; }
+  .tabela-wyd td::before { content: attr(data-l); font-size: 12.5px; color: var(--szary); }
+  .tabela-wyd td:not([data-l]) { grid-template-columns: 1fr; }
+  .tabela-wyd td.liczba { text-align: left; }
+  .tabela-wyd td.liczba input { text-align: left; }
+  .tabela-wyd tfoot td { display: block; }
+}
+#okno.okno-szerokie { width: min(760px, calc(100vw - 24px)); max-width: none; }
+.lista-przypisz { list-style: none; margin: 10px 0 0; padding: 0; max-height: 52vh; overflow: auto; border: 1px solid var(--linia); border-radius: 12px; }
+.lista-przypisz li { display: grid; grid-template-columns: 1fr; gap: 4px; padding: 8px 10px; border-top: 1px solid var(--linia); }
+.lista-przypisz li:first-child { border-top: 0; }
+.lista-przypisz label { display: grid; grid-template-columns: auto 52px 1fr auto; gap: 10px; align-items: center; cursor: pointer; }
+.lista-przypisz input[type=checkbox] { width: 20px; height: 20px; }
+.lista-przypisz .opis-przypisz { display: grid; min-width: 0; }
+.lista-przypisz .opis-przypisz small { color: var(--szary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lista-przypisz select { margin-left: 30px; max-width: calc(100% - 30px); }
+.szukaj-przypisz { width: 100%; }
+.tabela-wyd input[name="pozycja"] { min-width: 230px; }
+.tabela-wyd input[name="kategoria"] { min-width: 150px; }
+.tabela-wyd input[name="odpowiedzialny"] { min-width: 120px; }
+.tabela-wyd td.liczba input { width: 110px; min-width: 0; }
+@media (max-width: 760px) { .tabela-wyd input[name] { min-width: 0; } .tabela-wyd td.liczba input { width: 100%; } }
+@media (max-width: 760px) {
+  .tabela-wyd td.akcje-wyd { display: flex; justify-content: flex-end; gap: 8px; padding-top: 6px; }
+  .tabela-wyd td.akcje-wyd::before { content: none; }
+  .tabela-wyd .chip.male-chip { justify-self: start; }
+}

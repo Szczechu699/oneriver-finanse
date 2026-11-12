@@ -10,6 +10,7 @@ import { ekran as ekranListy } from './lista.js';
 import { ekranPlanowane, ekranSubskrypcje } from './planowane.js';
 import { ekran as ekranPozyczek } from './pozyczki.js';
 import { ekranBudzety, ekranBudzet } from './budzety.js';
+import { ekran as ekranWydarzenia } from './wydarzenia.js';
 import { ekranDane, ekranKonta, ekranKonto, ekranKategorie, ekranKategoria, ekranTytuly } from './edycja.js';
 import { ekran as ekranUstawien } from './ustawienia.js';
 import { ekran as ekranPodsumowania } from './podsumowanie.js';
@@ -42,7 +43,7 @@ const TRASY = {
   lista: [ekranListy, 'lista'], podsumowanie: [ekranPodsumowania, 'podsumowanie'], sprzedaz: [ekranSprzedazy, 'sprzedaz'],
   planowane: [ekranPlanowane, 'planowane'], subskrypcje: [ekranSubskrypcje, 'subskrypcje'],
   pozyczki: [ekranPozyczek, 'pozyczki'], pozyczka: [ekranPozyczek, 'pozyczki'],
-  budzety: [ekranBudzety, 'budzety'], budzet: [ekranBudzet, 'budzety'],
+  budzety: [ekranBudzety, 'budzety'], budzet: [ekranBudzet, 'budzety'], wydarzenie: [ekranWydarzenia, 'budzety'],
   dane: [ekranDane, 'dane'], konta: [ekranKonta, 'dane'], konto: [ekranKonto, 'dane'],
   kategorie: [ekranKategorie, 'dane'], kategoria: [ekranKategoria, 'dane'], tytuly: [ekranTytuly, 'dane'],
   ustawienia: [ekranUstawien, 'ustawienia'], dziennik: [ekranDziennika, 'dziennik'], import: [ekranImportu, 'import'], rozliczenia: [ekranRozliczen, 'rozliczenia'], rozliczenie: [ekranRozliczen, 'rozliczenia'], kasa: [ekranKasy, 'rozliczenia'],
@@ -84,6 +85,7 @@ function render() {
 
   if (ekran === formularz.ekran) {
     if (widok === 'dodaj' && arg?.startsWith('odloz-')) ekran.render(['nowe-odlozenie', arg.slice(6)]);
+    else if (widok === 'dodaj' && arg?.startsWith('wyd~')) ekran.render(['nowy-do-wydarzenia', arg.slice(4)]);
     else {
       const tryb = widok === 'dodaj'
         ? ({ plan: 'nowy-plan', sub: 'nowa-sub', pozyczka: 'nowa-pozyczka' }[arg] || null)

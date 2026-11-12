@@ -6,10 +6,12 @@ import {
   dane, wczytajDane, glowne, podmioty, konta, KOLORY, aktywneBudzety, kategorieBudzetu, stanBudzetu, stanCelu, PRYWATNE, kontoCelu, SKARBONKA,
 } from './dane.js';
 import { ustawFiltrBudzetu } from './lista.js';
+import { stanWydarzenia, pozycjeStartowe, opublikujWydarzenie } from './wydarzenia.js';
 
 export function renderBudzety() {
   const lst = aktywneBudzety();
   const projekty = lst.filter(b => b.rodzaj === 'projekt');
+  const wydarzenia = lst.filter(b => b.rodzaj === 'wydarzenie').sort((a, b) => String(a.data_od || '9').localeCompare(String(b.data_od || '9')));
   const limity = lst.filter(b => b.rodzaj === 'limit' || !b.rodzaj);
   const cele = lst.filter(b => b.rodzaj === 'cel');
   const zakonczone = dane.budzety.filter(b => b.status === 'zakończony');
@@ -19,17 +21,19 @@ export function renderBudzety() {
       <h1>Budżety i cele</h1>
       <div class="przyciski">
         <a class="przycisk drugorzedny" href="#budzet/nowy-cel">Nowy cel</a>
+        <a class="przycisk drugorzedny" href="#budzet/nowe-wydarzenie">Nowe wydarzenie</a>
         <a class="przycisk" href="#budzet/nowy">Nowy budżet</a>
       </div>
     </div>
     ${lst.length ? '' : `<div class="pusto-duze">
       <p>Budżet projektu zbiera wydatki wyprawy albo kiermaszu, które przypiszesz przy wpisie. Limit pilnuje miesięcznej kwoty na wybrane kategorie. Cel pokazuje, ile już odłożono, np. na sprzęt albo rezerwę na wyprawę.</p>
       <a class="przycisk" href="#budzet/nowy">Utwórz pierwszy budżet</a></div>`}
+    ${wydarzenia.length ? `<h2 class="tytul-grupy">Wydarzenia</h2><div class="karty-budzetow">${wydarzenia.map(kartaWydarzenia).join('')}</div>` : ''}
     ${projekty.length ? `<h2 class="tytul-grupy">Projekty</h2><div class="karty-budzetow">${projekty.map(kartaBudzetu).join('')}</div>` : ''}
     ${limity.length ? `<h2 class="tytul-grupy">Limity na kategorie</h2><div class="karty-budzetow">${limity.map(kartaBudzetu).join('')}</div>` : ''}
     ${cele.length ? `<h2 class="tytul-grupy">Cele</h2><div class="karty-budzetow">${cele.map(kartaCelu).join('')}</div>` : ''}
     ${zakonczone.length ? `<details class="wiecej"><summary>Zakończone (${zakonczone.length})</summary>
-      <div class="karty-budzetow">${zakonczone.map(b => (b.rodzaj === 'cel' ? kartaCelu(b) : kartaBudzetu(b))).join('')}</div></details>` : ''}
+      <div class="karty-budzetow">${zakonczone.map(b => (b.rodzaj === 'cel' ? kartaCelu(b) : b.rodzaj === 'wydarzenie' ? kartaWydarzenia(b) : kartaBudzetu(b))).join('')}</div></details>` : ''}
   </section>`;
 }
 
@@ -52,6 +56,24 @@ function kartaBudzetu(b) {
     ${s.wplywy ? `<p class="dodatkowe">Wpływy w tym budżecie: ${esc(kwotaTxt(s.wplywy))}.</p>` : ''}
     ${s.bezKursu ? `<p class="dodatkowe">Bez kursu NBP, niewliczone: ${s.bezKursu}.</p>` : ''}
     <button type="button" class="link" data-akcja="pokaz-transakcje" data-v="${esc(b.id)}">Pokaż transakcje (${s.liczba})</button>
+  </article>`;
+}
+
+function kartaWydarzenia(b) {
+  const s = stanWydarzenia(b);
+  const daty = b.data_od || b.data_do ? `${b.data_od ? dataKrotko(b.data_od) : '…'}${b.data_do && b.data_do !== b.data_od ? ' – ' + dataKrotko(b.data_do) : ''}` : 'bez daty';
+  const procent = s.planKoszty > 0 ? s.faktKoszty / s.planKoszty : 0;
+  return `<article class="karta-budzetu wydarzenie" style="--kolor:${esc(b.kolor || KOLORY[2])}">
+    <a class="naglowek-karty" href="#wydarzenie/${encodeURIComponent(b.id)}">
+      <h3>${esc(b.nazwa)}</h3>
+      <span>${esc([daty, b.miejsce].filter(Boolean).join(', '))}</span>
+    </a>
+    <div class="pasek" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(Math.min(1, procent) * 100)}"
+      aria-label="Wydane z planu kosztów"><span style="width:${Math.min(100, procent * 100).toFixed(1)}%"></span></div>
+    <p class="liczby">koszty <b>${esc(kwotaTxt(s.faktKoszty))}</b> z ${esc(kwotaTxt(s.planKoszty))}</p>
+    <p class="zostalo">Przychody ${esc(kwotaTxt(s.faktPrzych))} · wynik <b>${esc(kwotaTxt(s.wynik))}</b></p>
+    ${s.prog.bilety !== null ? `<p class="dodatkowe">Próg opłacalności: ${s.prog.bilety} ${odmiana(s.prog.bilety, 'bilet', 'bilety', 'biletów')}${s.prog.miesci === false ? ' – nie mieści się na sali' : ''}.</p>` : ''}
+    <a class="przycisk-maly" href="#wydarzenie/${encodeURIComponent(b.id)}">Otwórz budżet wydarzenia</a>
   </article>`;
 }
 
@@ -87,18 +109,20 @@ let bf = null;
 function nowyBudzet(rodzaj = 'projekt') {
   return { id: null, nazwa: '', rodzaj, kwota: '', waluta: 'PLN', okres: 'miesiąc', data_od: rodzaj === 'cel' ? '' : dataLok(), data_do: '',
     kategorie: [], konta: rodzaj === 'cel' ? SKARBONKA : '', podmiot: '', kolor: rodzaj === 'cel' ? KOLORY[4] : KOLORY[0], status: 'aktywny', opis: '', oryginal: null,
-    auto_kwota: '', auto_konto: '', auto_data: dataLok() };
+    auto_kwota: '', auto_konto: '', auto_data: dataLok(), miejsce: '', cena_biletu: '', dni: '', pojemnosc: '', prowizja_proc: '' };
 }
 
 export function renderFormularz(id) {
-  const klucz = id === 'nowy' || id === 'nowy-cel' ? null : id;
-  if (!bf || bf.id !== klucz || (!klucz && (id === 'nowy-cel') !== (bf.rodzaj === 'cel') && !bf.dotkniety)) {
-    if (!klucz) bf = nowyBudzet(id === 'nowy-cel' ? 'cel' : 'projekt');
+  const klucz = id === 'nowy' || id === 'nowy-cel' || id === 'nowe-wydarzenie' ? null : id;
+  const rodzajTrasy = id === 'nowy-cel' ? 'cel' : id === 'nowe-wydarzenie' ? 'wydarzenie' : 'projekt';
+  if (!bf || bf.id !== klucz || (!klucz && rodzajTrasy !== bf.rodzaj && !bf.dotkniety)) {
+    if (!klucz) bf = nowyBudzet(rodzajTrasy);
     else {
       const b = dane.budzety.find(x => x.id === id);
       if (!b) { location.hash = '#budzety'; return; }
       const plan = b.rodzaj === 'cel' ? planCelu(b) : null;
       bf = { ...nowyBudzet(), ...b, rodzaj: b.rodzaj || 'limit', kategorie: kategorieBudzetu(b), kwota: liczbaNaTekst(b.kwota), oryginal: b,
+        cena_biletu: liczbaNaTekst(b.cena_biletu), dni: liczbaNaTekst(b.dni), pojemnosc: liczbaNaTekst(b.pojemnosc), prowizja_proc: liczbaNaTekst(b.prowizja_proc),
         konta: b.rodzaj === 'cel' ? kontoCelu(b) : b.konta, auto_kwota: plan ? liczbaNaTekst(plan.kwota) : '', auto_konto: plan?.konto || '',
         auto_data: plan?.nastepna_data || dataLok(), plan };
     }
@@ -106,25 +130,33 @@ export function renderFormularz(id) {
   const r = bf.rodzaj;
   $('#widok').innerHTML = `
   <section class="ekran formularz-budzetu">
-    <a class="wstecz" href="#budzety">Budżety i cele</a>
-    <h1>${bf.id ? (r === 'cel' ? 'Edycja celu' : 'Edycja budżetu') : (r === 'cel' ? 'Nowy cel' : 'Nowy budżet')}</h1>
+    <a class="wstecz" href="${r === 'wydarzenie' && bf.id ? `#wydarzenie/${encodeURIComponent(bf.id)}` : '#budzety'}">${r === 'wydarzenie' && bf.id ? 'Budżet wydarzenia' : 'Budżety i cele'}</a>
+    <h1>${bf.id ? ({ cel: 'Edycja celu', wydarzenie: 'Dane wydarzenia' }[r] || 'Edycja budżetu') : ({ cel: 'Nowy cel', wydarzenie: 'Nowe wydarzenie' }[r] || 'Nowy budżet')}</h1>
     <form class="karta-ustawien" data-forma="budzet" novalidate>
       <fieldset class="pole"><legend>Rodzaj</legend>
-        <div class="chipy">${[['projekt', 'Budżet projektu'], ['limit', 'Limit na kategorie'], ['cel', 'Cel']].map(([k, e]) =>
+        <div class="chipy">${[['wydarzenie', 'Wydarzenie'], ['projekt', 'Budżet projektu'], ['limit', 'Limit na kategorie'], ['cel', 'Cel']].map(([k, e]) =>
           `<button type="button" class="chip" data-akcja="b-rodzaj" data-v="${k}" aria-pressed="${r === k}" ${bf.id ? 'disabled' : ''}>${e}</button>`).join('')}</div>
         <span class="podpowiedz">${{
-          projekt: 'Liczą się transakcje, którym przy wpisie wskażesz ten budżet, np. wyprawa albo kiermasz.',
+          wydarzenie: 'Festiwal, kiermasz, warsztaty: tabela kosztów i przychodów (plan i faktycznie), sprzedaż ze Stoiska, kasa i próg opłacalności. Wydarzenie pojawi się do wyboru w Stoisku.',
+          projekt: 'Liczą się transakcje, którym przy wpisie wskażesz ten budżet, np. wyprawa.',
           limit: 'Aplikacja sama sumuje wydatki z wybranych kategorii w każdym okresie.',
           cel: 'Przypisuj do celu wpływy albo przeksięgowania na konto oszczędnościowe. Wydatki z celu zmniejszają postęp.',
         }[r]}</span>
       </fieldset>
       <div class="rzad">
         <label class="pole"><span class="etykieta">Nazwa</span>
-          <input name="nazwa" value="${esc(bf.nazwa)}" placeholder="${{ projekt: 'np. Wyprawa luty 2027', limit: 'np. Wysyłki', cel: 'np. Rezerwa na wyprawę' }[r]}" autocomplete="off" required></label>
-        <label class="pole"><span class="etykieta">${r === 'cel' ? 'Kwota docelowa (zł)' : 'Kwota (zł)'}</span>
-          <input name="kwota" inputmode="decimal" value="${esc(bf.kwota)}" placeholder="np. 15 000" autocomplete="off" required></label>
+          <input name="nazwa" value="${esc(bf.nazwa)}" placeholder="${{ projekt: 'np. Wyprawa luty 2027', limit: 'np. Wysyłki', cel: 'np. Rezerwa na wyprawę', wydarzenie: 'np. Family Jam Festival' }[r]}" autocomplete="off" required></label>
+        ${r === 'wydarzenie' ? `<label class="pole"><span class="etykieta">Miejsce</span>
+          <input name="miejsce" value="${esc(bf.miejsce)}" placeholder="np. Sala Koneser, Warszawa" autocomplete="off"></label>` : `<label class="pole"><span class="etykieta">${r === 'cel' ? 'Kwota docelowa (zł)' : 'Kwota (zł)'}</span>
+          <input name="kwota" inputmode="decimal" value="${esc(bf.kwota)}" placeholder="np. 15 000" autocomplete="off" required></label>`}
       </div>
-      ${r === 'projekt' ? `<div class="rzad">
+      ${r === 'wydarzenie' ? `<div class="rzad cztery">
+        <label class="pole"><span class="etykieta">Cena biletu (1 dzień, zł)</span><input name="cena_biletu" inputmode="decimal" value="${esc(bf.cena_biletu)}" placeholder="np. 100" autocomplete="off"></label>
+        <label class="pole"><span class="etykieta">Liczba dni</span><input name="dni" inputmode="numeric" value="${esc(bf.dni)}" placeholder="np. 2" autocomplete="off"></label>
+        <label class="pole"><span class="etykieta">Pojemność sali (osób/dzień)</span><input name="pojemnosc" inputmode="numeric" value="${esc(bf.pojemnosc)}" placeholder="np. 170" autocomplete="off"></label>
+        <label class="pole"><span class="etykieta">Prowizja platformy biletowej (%)</span><input name="prowizja_proc" inputmode="decimal" value="${esc(bf.prowizja_proc)}" placeholder="opcjonalnie" autocomplete="off"></label>
+      </div>` : ''}
+      ${r === 'projekt' || r === 'wydarzenie' ? `<div class="rzad">
         <label class="pole"><span class="etykieta">Od</span><input type="date" name="data_od" value="${esc(bf.data_od)}"></label>
         <label class="pole"><span class="etykieta">Do</span><input type="date" name="data_do" value="${esc(bf.data_do)}" min="${esc(bf.data_od)}"></label>
       </div>` : ''}
@@ -172,7 +204,7 @@ export function renderFormularz(id) {
 function zbierz() {
   const form = $('form[data-forma="budzet"]');
   if (!form) return;
-  ['nazwa', 'kwota', 'data_od', 'data_do', 'opis', 'auto_kwota', 'auto_konto', 'auto_data'].forEach(n => { if (form.elements[n]) bf[n] = form.elements[n].value; });
+  ['nazwa', 'kwota', 'data_od', 'data_do', 'opis', 'auto_kwota', 'auto_konto', 'auto_data', 'miejsce', 'cena_biletu', 'dni', 'pojemnosc', 'prowizja_proc'].forEach(n => { if (form.elements[n]) bf[n] = form.elements[n].value; });
 }
 
 async function klik(e) {
@@ -194,14 +226,16 @@ async function klik(e) {
   else if (akcja === 'b-kolor') bf.kolor = v;
   else if (akcja === 'b-konto') bf.konta = v;
   else if (akcja === 'b-zakoncz' || akcja === 'b-wznow') {
-    await sync.zapisz('BUDZETY', [{ ...bf.oryginal, status: akcja === 'b-zakoncz' ? 'zakończony' : 'aktywny' }]);
+    const nowy = { ...bf.oryginal, status: akcja === 'b-zakoncz' ? 'zakończony' : 'aktywny' };
+    await sync.zapisz('BUDZETY', [nowy]);
+    if (nowy.rodzaj === 'wydarzenie') await opublikujWydarzenie(nowy);
     await wczytajDane();
     toast(akcja === 'b-zakoncz' ? 'Zakończono.' : 'Przywrócono.', 'ok');
     bf = null;
     location.hash = '#budzety';
     return;
   } else return;
-  bezSkoku(() => renderFormularz(bf.id || (bf.rodzaj === 'cel' ? 'nowy-cel' : 'nowy')));
+  bezSkoku(() => renderFormularz(bf.id || ({ cel: 'nowy-cel', wydarzenie: 'nowe-wydarzenie' }[bf.rodzaj] || 'nowy')));
 }
 
 async function zapisz() {
@@ -209,18 +243,24 @@ async function zapisz() {
   const kwota = zaokr(liczba(bf.kwota));
   const r = bf.rodzaj;
   if (!bf.nazwa.trim()) return toast('Wpisz nazwę.', 'blad');
-  if (!(kwota > 0)) return toast('Wpisz kwotę.', 'blad');
+  if (!(kwota > 0) && r !== 'wydarzenie') return toast('Wpisz kwotę.', 'blad');
   if (r === 'limit' && !bf.kategorie.length) return toast('Wybierz co najmniej jedną kategorię.', 'blad');
-  if (r === 'projekt' && bf.data_od && bf.data_do && bf.data_do < bf.data_od) return toast('Data końca jest wcześniejsza niż początek.', 'blad');
+  if ((r === 'projekt' || r === 'wydarzenie') && bf.data_od && bf.data_do && bf.data_do < bf.data_od) return toast('Data końca jest wcześniejsza niż początek.', 'blad');
   const w = {
     ...(bf.oryginal || {}),
     id: bf.id || uuid(), nazwa: bf.nazwa.trim(), rodzaj: r, kwota, waluta: 'PLN',
     okres: r === 'limit' ? bf.okres : '',
-    data_od: r === 'projekt' ? bf.data_od : '', data_do: r === 'limit' ? '' : bf.data_do,
+    data_od: r === 'projekt' || r === 'wydarzenie' ? bf.data_od : '', data_do: r === 'limit' ? '' : bf.data_do,
     kategorie: r === 'limit' ? bf.kategorie.join(', ') : '', konta: r === 'cel' ? bf.konta : '', podmiot: r === 'cel' ? '' : bf.podmiot,
     kolor: bf.kolor, status: bf.oryginal?.status || 'aktywny', opis: bf.opis.trim(),
   };
+  if (r === 'wydarzenie') {
+    const n = v => (String(v ?? '').trim() === '' ? '' : zaokr(liczba(v)));
+    Object.assign(w, { kwota: '', miejsce: String(bf.miejsce || '').trim(), cena_biletu: n(bf.cena_biletu), dni: n(bf.dni), pojemnosc: n(bf.pojemnosc), prowizja_proc: n(bf.prowizja_proc) });
+    if (!w.dni && w.data_od && w.data_do) w.dni = Math.max(1, Math.round((new Date(w.data_do) - new Date(w.data_od)) / 86400000) + 1);
+  }
   const paczki = [{ karta: 'BUDZETY', wiersze: [w] }];
+  if (r === 'wydarzenie' && !bf.id) paczki.push({ karta: 'BUDZET_POZYCJE', wiersze: pozycjeStartowe(w.id) });
   if (r === 'cel') {
     const auto = zaokr(liczba(bf.auto_kwota));
     const stary = bf.plan;
@@ -237,10 +277,11 @@ async function zapisz() {
     }
   }
   await sync.zapiszWiele(paczki);
+  if (r === 'wydarzenie') await opublikujWydarzenie(w);
   await wczytajDane();
   toast(bf.id ? 'Zapisano.' : `Utworzono „${w.nazwa}”.`, 'ok');
   bf = null;
-  location.hash = '#budzety';
+  location.hash = r === 'wydarzenie' ? `#wydarzenie/${encodeURIComponent(w.id)}` : '#budzety';
 }
 
 export const ekranBudzety = { render: renderBudzety, klik };

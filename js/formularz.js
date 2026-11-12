@@ -15,6 +15,7 @@ import {
 } from './dane.js';
 import { zapiszPozyczke } from './pozyczki.js';
 import { nowaKategoria } from './kategorie.js';
+import { pozycjeWydarzenia } from './wydarzenia.js';
 import { ikonaSvg } from './ikony.js';
 import { czyWplywDoRozliczenia, rozliczonoTransakcji, zostaloWplywu } from './rozliczenia.js';
 
@@ -41,7 +42,7 @@ function nowyFormularz(zostaw = {}) {
     kategoria: '', podkategoria: '', podzial: null, podzialId: null,
     kontrahent: '', podmiot: zostaw.podmiot ?? pam.podmiot ?? '',
     tagi: '', data: zostaw.data || dzis,
-    nr_dokumentu: '', dowod: '', opis: '', budzet: '', cel: '',
+    nr_dokumentu: '', dowod: '', opis: '', budzet: '', cel: '', pozycja_budzetu: '',
     zalaczniki: [],
     powtarzanie: 'miesiąc', co_ile: '1', data_koniec: '', subskrypcja: false,
     pozyczka: {
@@ -78,7 +79,7 @@ function formularzZGrupy(g) {
     kategoria: g.rodzaj === 'podzial' ? '' : kat(t), podkategoria: g.rodzaj === 'podzial' ? '' : (t.podkategoria || ''),
     podzial: g.rodzaj === 'podzial' ? g.czesci.map(c => ({ kategoria: kat(c), podkategoria: c.podkategoria || '', kwota: liczbaNaTekst(c.kwota) })) : null,
     podzialId: t.podzial_id || null,
-    kontrahent: t.kontrahent || '', podmiot: t.podmiot || '', budzet: t.budzet || '', cel: t.cel || '',
+    kontrahent: t.kontrahent || '', podmiot: t.podmiot || '', budzet: t.budzet || '', cel: t.cel || '', pozycja_budzetu: t.pozycja_budzetu || '',
   };
 }
 
@@ -455,6 +456,13 @@ function htmlBudzetuICelu(miedzy) {
         ${cele.map(b => `<button type="button" class="chip chip-cel" data-akcja="przypisz" data-v="${esc(b.id)}" aria-pressed="${f.cel === b.id}">${ikonaSvg('cele')}${esc(b.nazwa)}</button>`).join('')}
       </div>
       ${podp ? `<span class="podpowiedz">${esc(podp)}</span>` : ''}
+      ${wybrany?.rodzaj === 'wydarzenie' && !miedzy && (f.typ === 'wydatek' || f.typ === 'wpływ') ? (() => {
+        const pozycje = pozycjeWydarzenia(wybrany.id, f.typ === 'wpływ' ? 'przychód' : 'koszt');
+        return `<label class="pole"><span class="etykieta">Pozycja w budżecie wydarzenia</span>
+          <select name="pozycja_budzetu"><option value="">— bez pozycji —</option>${pozycje.map(p =>
+            `<option value="${esc(p.id)}" ${p.id === f.pozycja_budzetu ? 'selected' : ''}>${esc([p.kategoria, p.pozycja, p.odpowiedzialny].filter(Boolean).join(' · '))}</option>`).join('')}</select>
+          <span class="podpowiedz">Kwota trafi do kolumny „Faktyczna” tej pozycji.</span></label>`;
+      })() : ''}
     </fieldset>`;
 }
 
@@ -496,6 +504,19 @@ export function renderDodaj(trasa = null, id = null) {
       if (konta().some(k => k.nazwa === kc)) f.konto_docelowe = kc;
       if (f.konto === kc) f.konto = konta().find(k => !k.wirtualne)?.nazwa || f.konto;
     }
+    }
+  } else if (trasa === 'nowy-do-wydarzenia') {
+    const [bId, pId] = String(id).split('~');
+    if (!(f && f.tryb === 'nowy' && f.budzet === bId && f.pozycja_budzetu === (pId || ''))) {
+      const poz = dane.pozycjeBudzetu.find(p => p.id === pId);
+      f = nowyFormularz();
+      f.budzet = bId;
+      f.pozycja_budzetu = pId || '';
+      if (poz) {
+        f.typ = poz.typ === 'przychód' ? 'wpływ' : 'wydatek';
+        f.kontrahent = poz.pozycja || '';
+        f.opis = [poz.kategoria, poz.odpowiedzialny].filter(Boolean).join(' · ');
+      }
     }
   } else if (trasa === 'nowa-pozyczka') {
     if (!f || f.tryb === 'edycja' || f.typ !== 'pożyczka') { f = nowyFormularz(); f.typ = 'pożyczka'; }
@@ -649,7 +670,7 @@ function brak(tytul, tekst, link, etykieta) {
 function zbierzPola() {
   const form = $('.kolumna-szczegolow');
   if (!form || !f) return;
-  ['data', 'kontrahent', 'opis', 'nr_dokumentu', 'tagi', 'kwota_do', 'co_ile', 'powtarzanie', 'data_koniec'].forEach(n => {
+  ['data', 'kontrahent', 'opis', 'nr_dokumentu', 'tagi', 'kwota_do', 'co_ile', 'powtarzanie', 'data_koniec', 'pozycja_budzetu'].forEach(n => {
     const el = form.elements[n];
     if (el) f[n] = el.value;
   });
@@ -704,7 +725,7 @@ export function obsluzKlik(e) {
           const kc = kontoCelu(b);
           if (kc !== f.konto && konta().some(k => k.nazwa === kc)) f.konto_docelowe = kc;
         }
-      } else { f.budzet = v; f.cel = ''; }
+      } else { if (f.budzet !== v) f.pozycja_budzetu = ''; f.budzet = v; f.cel = ''; }
       break;
     }
     case 'data': f.data = dodajDni(dataLok(), Number(v)); break;
@@ -1024,7 +1045,7 @@ export async function zapiszFormularz() {
         ...kurs(orig, waluta, f.data, c.kwota),
         kategoria: f.typ === 'wydatek' ? c.kategoria : '', podkategoria: f.typ === 'wydatek' ? c.podkategoria : '',
         zrodlo_przychodu: f.typ === 'wpływ' ? c.kategoria : '',
-        kontrahent: f.kontrahent.trim(), podmiot: f.podmiot, budzet: f.budzet, cel: f.cel,
+        kontrahent: f.kontrahent.trim(), podmiot: f.podmiot, budzet: f.budzet, cel: f.cel, pozycja_budzetu: f.budzet ? f.pozycja_budzetu || '' : '',
         status: nowyStatus(orig), zrodlo: orig?.zrodlo || 'ręczny',
       };
     });

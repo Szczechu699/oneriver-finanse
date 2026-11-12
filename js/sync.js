@@ -19,6 +19,8 @@ export const KLUCZE = {
   ZAMOWIENIA: r => String(r.id),        // zamówienia ze Stoiska (rozliczenia, kasa)
   KLIENCI: r => String(r.id),           // klienci Stoiska (nazwisko do dopasowania wpływu)
   KASA_LICZENIA: r => String(r.id),     // liczenia kasy (Elsterska, Grażynka, wydarzenia)
+  BUDZET_POZYCJE: r => String(r.id),    // pozycje budżetu wydarzenia (koszty i przychody)
+  USTAWIENIA: r => String(r.id),        // wspólne ustawienia ze Stoiskiem (lista wydarzeń: id „wydarzenie:…”)
 };
 let kartyPobierane = Object.keys(KLUCZE);
 

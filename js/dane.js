@@ -5,11 +5,11 @@ import * as sync from './sync.js';
 import { mozePrywatne } from './api.js';
 import { dataLok, dodajDni, przesunDate, roznicaDni, zaokr } from './util.js';
 
-export const dane = { slownik: [], transakcje: [], planowane: [], budzety: [], pozyczki: [], sprzedaz: [], sprzedazPoz: [], sprzedazWszystkie: [], sprzedazPozWszystkie: [], importy: [], rozliczenia: [], zamowienia: [], liczeniaKasy: [], klienci: [] };
+export const dane = { slownik: [], transakcje: [], planowane: [], budzety: [], pozyczki: [], sprzedaz: [], sprzedazPoz: [], sprzedazWszystkie: [], sprzedazPozWszystkie: [], importy: [], rozliczenia: [], zamowienia: [], liczeniaKasy: [], klienci: [], pozycjeBudzetu: [] };
 
 export async function wczytajDane() {
-  [dane.slownik, dane.transakcje, dane.planowane, dane.budzety, dane.pozyczki, dane.sprzedaz, dane.sprzedazPoz, dane.importy, dane.rozliczenia, dane.zamowienia, dane.liczeniaKasy, dane.klienci] = await Promise.all(
-    ['SLOWNIK', 'TRANSAKCJE', 'PLANOWANE', 'BUDZETY', 'POZYCZKI', 'SPRZEDAZ_SGT', 'SPRZEDAZ_SGT_POZ', 'IMPORTY', 'ROZLICZENIA', 'ZAMOWIENIA', 'KASA_LICZENIA', 'KLIENCI'].map(k => db.wiersze(k)));
+  [dane.slownik, dane.transakcje, dane.planowane, dane.budzety, dane.pozyczki, dane.sprzedaz, dane.sprzedazPoz, dane.importy, dane.rozliczenia, dane.zamowienia, dane.liczeniaKasy, dane.klienci, dane.pozycjeBudzetu] = await Promise.all(
+    ['SLOWNIK', 'TRANSAKCJE', 'PLANOWANE', 'BUDZETY', 'POZYCZKI', 'SPRZEDAZ_SGT', 'SPRZEDAZ_SGT_POZ', 'IMPORTY', 'ROZLICZENIA', 'ZAMOWIENIA', 'KASA_LICZENIA', 'KLIENCI', 'BUDZET_POZYCJE'].map(k => db.wiersze(k)));
   // paragony i pozycje usunięte w Subiekcie zostają w arkuszu ze statusem, ale nie liczą się nigdzie
   dane.sprzedazWszystkie = dane.sprzedaz;
   dane.sprzedazPozWszystkie = dane.sprzedazPoz;
@@ -355,7 +355,7 @@ export const aktywneCele = () => aktywneBudzety().filter(b => b.rodzaj === 'cel'
 
 /** Zakres dat bieżącego okresu budżetu [od, do] (włącznie). */
 export function okresBudzetu(b, dzien = dataLok()) {
-  if (b.rodzaj === 'projekt' || b.rodzaj === 'cel') return [b.data_od || '0000-01-01', b.data_do || '9999-12-31'];
+  if (b.rodzaj === 'projekt' || b.rodzaj === 'cel' || b.rodzaj === 'wydarzenie') return [b.data_od || '0000-01-01', b.data_do || '9999-12-31'];
   if (b.okres === 'tydzień') {
     const d = new Date(dzien + 'T12:00:00');
     const pon = dodajDni(dzien, -((d.getDay() + 6) % 7));
@@ -375,7 +375,7 @@ export function stanBudzetu(b, dzien = dataLok()) {
   for (const t of dane.transakcje) {
     if (t.status === 'anulowana' || czyPrzeks(t) || czyPozyczkowa(t) || czyPrywatna(t)) continue;
     const d = t.data_operacji || '';
-    if (b.rodzaj === 'projekt') {
+    if (b.rodzaj === 'projekt' || b.rodzaj === 'wydarzenie') {
       if (t.budzet !== b.id) continue;
     } else {
       if (t.typ !== 'wydatek' || !kat.has(t.kategoria) || d < od || d > do_) continue;
@@ -425,5 +425,5 @@ export function stanCelu(c, dzien = dataLok()) {
 }
 
 /** Budżety projektów, które można wybrać przy wpisie z tą datą. */
-export const budzetyDoWyboru = data => aktywneBudzety().filter(b => b.rodzaj === 'projekt'
-  && (!b.data_od || data >= b.data_od) && (!b.data_do || data <= dodajDni(b.data_do, 30)));
+export const budzetyDoWyboru = data => aktywneBudzety().filter(b => (b.rodzaj === 'projekt' || b.rodzaj === 'wydarzenie')
+  && (!b.data_od || data >= dodajDni(b.data_od, b.rodzaj === 'wydarzenie' ? -120 : 0)) && (!b.data_do || data <= dodajDni(b.data_do, 30)));
