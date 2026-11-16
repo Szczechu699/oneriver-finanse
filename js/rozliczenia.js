@@ -123,12 +123,14 @@ export const PODMIOT_ZAMOWIEN = 'STOISKO';
 export function zamowieniaBezParagonu() {
   const { zamDoPar } = paryZamowienParagonow();
   return dane.zamowienia.filter(z => z.status !== 'anulowane' && z.status !== 'nowe' && !zamDoPar.has(String(z.id)) && num(z.suma_brutto) > 0)
-    .map(z => ({
-      podmiot: PODMIOT_ZAMOWIEN, dok_id: String(z.id), numer: String(z.id), data: String(z.data || '').slice(0, 10), zamowienie: true,
-      kontrahent: dane.klienci.find(k => String(k.id) === String(z.klient_id))?.nazwa || '', magazyn: z.wydarzenie || z.magazyn || '', forma_platnosci: z.forma_platnosci || '',
-      brutto: num(z.suma_brutto), kw_gotowka: num(z.kw_gotowka), status_zam: z.status,
-    }));
+    .map(paragonZZamowienia);
 }
+/** Zamówienie ze Stoiska w formie „paragonu” STOISKO|<numer>. */
+const paragonZZamowienia = z => ({
+  podmiot: PODMIOT_ZAMOWIEN, dok_id: String(z.id), numer: String(z.id), data: String(z.data || '').slice(0, 10), zamowienie: true,
+  kontrahent: dane.klienci.find(k => String(k.id) === String(z.klient_id))?.nazwa || '', magazyn: z.wydarzenie || z.magazyn || '', forma_platnosci: z.forma_platnosci || '',
+  brutto: num(z.suma_brutto), kw_gotowka: num(z.kw_gotowka), status_zam: z.status,
+});
 /** Paragony z Subiektu i zamówienia ze Stoiska bez paragonu. */
 export const paragonyIZamowienia = () => [...dane.sprzedaz, ...zamowieniaBezParagonu()];
 const znajdzParagon = klucz => paragonyIZamowienia().find(x => kluczParagonu(x) === klucz);
@@ -146,6 +148,74 @@ export async function przeniesRozliczeniaZamowien() {
   await sync.zapisz('ROZLICZENIA', doZmiany);
   await wczytajDane();
   return doZmiany.length;
+}
+
+// ───────────── automatycznie: numer zamówienia w tytule przelewu ─────────────
+
+// Numer zamówienia: KOD-RRRR-NNNN (np. T4-2026-0012, G1-2026-0003, W-2026-0001). W tytule bywa bez myślników,
+// ze spacjami albo bez zer z przodu („t4 2026 12”, „T420260012”) – liczy się tylko numer istniejącego zamówienia.
+const WZOR_NUMERU = /(?<![A-Z0-9])([A-Z][A-Z0-9]{0,3})[\s\-_/.]{0,2}(20\d\d)[\s\-_/.]{0,2}(\d{1,4})(?!\d)/gi;
+export function zamowieniaWTytule(t) {
+  const tekst = [t.opis, t.kontrahent, t.surowy_wiersz].filter(Boolean).join(' ');
+  if (!/20\d\d/.test(tekst)) return [];
+  const wynik = [];
+  for (const m of tekst.matchAll(WZOR_NUMERU)) {
+    const id = `${m[1].toUpperCase()}-${m[2]}-${m[3].padStart(4, '0')}`;
+    const z = dane.zamowienia.find(x => String(x.id).toUpperCase() === id && x.status !== 'anulowane');
+    if (z && !wynik.includes(z)) wynik.push(z);
+  }
+  return wynik;
+}
+
+/**
+ * Rozlicza wpływy, które mają w tytule numer zamówienia: z paragonem tego zamówienia (gdy jest już w Subiekcie),
+ * a gdy nie ma – z samym zamówieniem (po wklejeniu sprzedaży rozliczenie przejdzie na paragon).
+ * Id rozliczenia jest stałe (wpływ + zamówienie), więc kilka urządzeń nie zrobi go dwa razy, a cofnięte nie wraca.
+ * Zwraca utworzone wiersze.
+ */
+export async function rozliczPoNumerach() {
+  const { zamDoPar } = paryZamowienParagonow();
+  const zostP = new Map(), wiersze = [];
+  for (const t of otwarteWplywy()) {
+    const zam = zamowieniaWTytule(t);
+    if (!zam.length) continue;
+    let resztaW = zostaloWplywu(t);
+    for (const z of zam) {
+      const d = zamDoPar.get(String(z.id)) || paragonZZamowienia(z);
+      if (!(num(d.brutto) > 0) || gotowkowy(d)) continue;            // gotówkowe rozlicza kasa
+      const id = `nr|${t.id}|${z.id}`;
+      if (dane.rozliczenia.some(r => r.id === id)) continue;          // już było (także cofnięte ręcznie)
+      const k = kluczParagonu(d);
+      const resztaP = zostP.has(k) ? zostP.get(k) : zostaloParagonu(d);
+      const kwota = zaokr(Math.min(resztaW, resztaP));
+      if (kwota <= 0.004) continue;
+      wiersze.push({ ...zParagonem(t, d, kwota, 'numer zamówienia'), id,
+        uwagi: `${d.numer}${d.zamowienie ? ' (zamówienie)' : ` (${[d.podmiot, d.magazyn_symbol].filter(Boolean).join(' ')}) – zamówienie ${z.id}`} · numer w tytule przelewu` });
+      resztaW = zaokr(resztaW - kwota);
+      zostP.set(k, zaokr(resztaP - kwota));
+      if (resztaW <= 0.004) break;
+    }
+  }
+  if (!wiersze.length) return [];
+  await sync.zapisz('ROZLICZENIA', wiersze);
+  await wczytajDane();
+  return wiersze;
+}
+
+/** Komunikat po automatycznym rozliczeniu (z „Cofnij”). */
+export function komunikatPoNumerach(wiersze, poCofnieciu = () => {}) {
+  if (!wiersze.length) return;
+  const ile = new Set(wiersze.map(r => r.transakcja_id)).size;
+  const suma = zaokr(wiersze.reduce((a, r) => a + num(r.kwota_pln), 0));
+  toast(`Rozliczono automatycznie ${ile} ${odmiana(ile, 'wpływ', 'wpływy', 'wpływów')} z numerem zamówienia w tytule (${kwotaTxt(suma)}).`, 'ok', 8000, {
+    etykieta: 'Cofnij',
+    fn: async () => {
+      await sync.zapisz('ROZLICZENIA', wiersze.map(r => ({ ...r, status: 'anulowane' })));
+      await wczytajDane();
+      toast('Cofnięto automatyczne rozliczenie.', 'ok');
+      poCofnieciu();
+    },
+  });
 }
 
 // Paragon i zamówienie w całości gotówkowe rozlicza się w kasie, nie z wpływem na konto.
@@ -389,7 +459,7 @@ function renderLista() {
         return `<li class="wiersz-rozl">
           <span class="data-rozl">${esc(dataKrotko(String(r.data).slice(0, 10)))}</span>
           <span class="opis-rozl"><b>${r.obiekt_typ === 'paragon' ? esc(r.uwagi || r.obiekt_id) : r.obiekt_typ === 'sprzedaz-bez-paragonu' ? `sprzedaż bez paragonu: ${esc(r.uwagi || '')}` : `bez paragonu: ${esc(r.uwagi || '')}`}</b>
-            <span>${t ? `<a href="#rozliczenie/${encodeURIComponent(t.id)}">${esc(t.kontrahent || 'wpływ')} · ${esc(dataKrotko(t.data_operacji))}</a>` : 'wpływ niedostępny'}${r.sposob === 'automatycznie' ? ' · automatycznie' : ''}</span></span>
+            <span>${t ? `<a href="#rozliczenie/${encodeURIComponent(t.id)}">${esc(t.kontrahent || 'wpływ')} · ${esc(dataKrotko(t.data_operacji))}</a>` : 'wpływ niedostępny'}${r.sposob === 'automatycznie' ? ' · automatycznie' : r.sposob === 'numer zamówienia' ? ' · automatycznie (numer zamówienia w tytule)' : ''}</span></span>
           <span class="kwoty-rozl"><b>${esc(zl(kwotaPlnRozl(r)))}</b>${r.waluta && r.waluta !== 'PLN' ? `<span>${esc(kwotaTxt(num(r.kwota), r.waluta))}</span>` : ''}<button type="button" class="przycisk-maly drugorzedny" data-akcja="cofnij-rozl" data-v="${esc(r.id)}">Cofnij</button></span>
         </li>`;
       }).join('') || '<li class="pusto">Nic jeszcze nie rozliczono.</li>'}</ul>`}
@@ -524,6 +594,8 @@ function render(arg) {
   if (!arg && !przenoszenie) {
     przenoszenie = true;
     przeniesRozliczeniaZamowien().then(n => { if (n && location.hash.replace(/^#/, '') === 'rozliczenia') { toast(`${n} ${odmiana(n, 'rozliczenie zamówienia przeszło', 'rozliczenia zamówień przeszły', 'rozliczeń zamówień przeszło')} na paragony z Subiektu.`, 'ok'); bezSkoku(rysujBiezacy); } })
+      .then(() => rozliczPoNumerach())
+      .then(w => { if (w?.length) { komunikatPoNumerach(w, () => bezSkoku(rysujBiezacy)); bezSkoku(rysujBiezacy); } })
       .catch(() => {}).finally(() => { przenoszenie = false; });
   }
   if (!arg && dane.transakcje.some(czekaNaKurs)) {

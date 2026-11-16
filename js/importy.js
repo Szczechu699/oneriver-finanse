@@ -11,6 +11,7 @@ import {
 import * as sync from './sync.js';
 import { ikonaSvg } from './ikony.js';
 import { nowaKategoria } from './kategorie.js';
+import { rozliczPoNumerach, komunikatPoNumerach } from './rozliczenia.js';
 
 const WPLYWOWE = new Set(['wpływ', 'przeksięgowanie-wpływ', 'pożyczka-otrzymana', 'spłata-otrzymana']);
 
@@ -893,6 +894,8 @@ async function zapiszImport(b) {
       Object.assign(imp, { p: null, konto: '', wiersze: [] });
     } else imp = null;
     render();
+    // wpływy z numerem zamówienia w tytule rozliczają się od razu z paragonem / zamówieniem
+    rozliczPoNumerach().then(w => komunikatPoNumerach(w)).catch(() => {});
   } catch (e) {
     b.disabled = false;
     toast('Nie udało się zapisać: ' + e.message, 'blad', 7000);
