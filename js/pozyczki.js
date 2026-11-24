@@ -115,13 +115,14 @@ async function zapiszIUzgodnij(pozyczkaId, paczki) {
   await wczytajDane();
 }
 
-export async function dodajSplate(p, { kwota, data, konto, rata = null }) {
+export async function dodajSplate(p, { kwota, data, konto, rata = null, podzial_id = '', opis = '' }) {
   const r = RODZAJE_POZYCZEK[p.rodzaj];
   const t = {
     ...PUSTA_TRANSAKCJA, id: uuid(), typ: r.splata, data_operacji: data, konto, kwota, waluta: p.waluta || 'PLN',
     ...kursy(p.waluta || 'PLN', kwota), kontrahent: p.osoba, podmiot: p.podmiot || '', pozyczka_id: p.id,
     planowana_id: rata?.id || '', planowany_termin: rata?.nastepna_data || '', status: statusDlaKonta(konto),
-    opis: rata ? rata.nazwa : (p.rodzaj === 'udzielona' ? `Zwrot od ${p.osoba}` : `Spłata dla ${p.osoba}`),
+    opis: [rata ? rata.nazwa : (p.rodzaj === 'udzielona' ? `Zwrot od ${p.osoba}` : `Spłata dla ${p.osoba}`), opis].filter(Boolean).join(' · '),
+    podzial_id,
   };
   await zapiszIUzgodnij(p.id, [{ karta: 'TRANSAKCJE', wiersze: [t] }]);
   return t;

@@ -1008,3 +1008,18 @@ tr.wycofany td { opacity: .6; }
   .tabela-wyd .chip.male-chip { justify-self: start; }
 }
 .wiersz-raty .akcje-raty { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+
+/* ── przelew zbiorczy z kodem QR ── */
+.wiersz-planu.z-wyborem { grid-template-columns: 40px 1fr; }
+.wiersz-planu.z-wyborem > .wybor-planu { grid-row: 1 / span 2; display: flex; align-items: center; justify-content: center; padding-left: 8px; cursor: pointer; }
+.wiersz-planu.z-wyborem > a, .wiersz-planu.z-wyborem > .akcje-planu { grid-column: 2; }
+.wiersz-planu.z-wyborem > .akcje-planu { padding-left: 58px; }
+.wybor-planu input { width: 22px; height: 22px; }
+.lista-zbiorcza { list-style: none; margin: 0 0 12px; padding: 0; border: 1px solid var(--linia); border-radius: 12px; }
+.lista-zbiorcza li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 12px; border-top: 1px solid var(--linia); }
+.lista-zbiorcza li:first-child { border-top: 0; }
+.lista-zbiorcza li small { color: var(--szary); margin-left: 6px; }
+.lista-zbiorcza li.suma { background: var(--papier-2); }
+#okno textarea[name="z-opis"] { width: 100%; font: inherit; }
+.kod-qr { display: flex; justify-content: center; background: #fff; border-radius: 12px; padding: 8px; }
+.kod-qr img { max-width: min(100%, 420px); height: auto; image-rendering: pixelated; }

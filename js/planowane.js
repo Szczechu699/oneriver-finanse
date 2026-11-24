@@ -8,6 +8,7 @@ import {
 } from './dane.js';
 import { zaplacRate, cofnijSplate, doZaplatyRaty } from './pozyczki.js';
 import { ikonaSvg } from './ikony.js';
+import { przelewZbiorczy, mozeZbiorczo, kwotaPozycji } from './przelew.js';
 
 // ── wspólne: zapłacone / cofnij / pomiń ──
 
@@ -106,7 +107,9 @@ export function wierszPlanu(p) {
   const ik = rata ? (wplyw ? '↗' : '↙') : ikona(kat, wplyw ? 'wpływ' : 'wydatek');
   const tlo = rata ? (wplyw ? '#D5E3DA' : '#EBD6DA') : kolorKategorii(kat, wplyw ? 'wpływ' : 'wydatek');
   const href = rata ? `#pozyczka/${encodeURIComponent(p.pozyczka_id)}` : `#plan/${encodeURIComponent(p.id)}`;
-  return `<li class="wiersz-planu ${klasa} ${opoz ? 'opozniona' : ''}">
+  const wybor = zbiorczo && mozeZbiorczo(p);
+  return `<li class="wiersz-planu ${klasa} ${opoz ? 'opozniona' : ''} ${wybor ? 'z-wyborem' : ''}">
+    ${wybor ? `<label class="wybor-planu" title="Zaznacz do przelewu zbiorczego"><input type="checkbox" name="zazn-plan" value="${esc(p.id)}" ${stan.zazn.has(p.id) ? 'checked' : ''} aria-label="Zaznacz: ${esc(p.nazwa || kat || '')}"></label>` : ''}
     <a href="${href}">
       <span class="ikona" style="--tlo:${esc(tlo)}" aria-hidden="true">${esc(ik)}</span>
       <span class="srodek"><span class="tytul">${esc(p.nazwa || kat || p.kontrahent)}</span>
@@ -159,8 +162,10 @@ function wierszRozliczonej(t) {
 
 // ── Planowane ──
 
+// Pola wyboru do przelewu zbiorczego pokazujemy tylko na ekranie Planowane (nie w Subskrypcjach).
+let zbiorczo = false;
 const stan = {
-  okres: 'miesiac', zakladka: 'wszystko', szukaj: '', panel: false,
+  okres: 'miesiac', zakladka: 'wszystko', szukaj: '', panel: false, zazn: new Set(),
   rodzaje: new Set(), konta: new Set(), kategorie: new Set(), podmioty: new Set(),
 };
 const OKRESY = [['miesiac', 'Do końca miesiąca'], ['30', '30 dni'], ['90', '3 miesiące'], ['365', '12 miesięcy'], ['wszystko', 'Wszystko']];
@@ -229,7 +234,12 @@ function panelFiltrow() {
 }
 
 export function renderPlanowane() {
+  zbiorczo = true;
   const dzis = dataLok();
+  // zaznaczone, które zniknęły (zapłacone, usunięte), wypadają z wyboru
+  [...stan.zazn].forEach(id => { const p = dane.planowane.find(x => x.id === id); if (!p || !mozeZbiorczo(p)) stan.zazn.delete(id); });
+  const zaznaczone = [...stan.zazn].map(id => dane.planowane.find(x => x.id === id)).filter(Boolean);
+  const sumaZazn = zaokr(zaznaczone.reduce((s, p) => s + kwotaPozycji(p), 0));
   const koniec = koniecOkresu();
   const filtrowane = poFiltrach();
   const b = bilans(filtrowane);
@@ -275,6 +285,11 @@ export function renderPlanowane() {
       <button type="button" class="drugorzedny przycisk-ikona" data-akcja="panel" aria-expanded="${stan.panel}">${ikonaSvg('filtr')} Filtry${nFiltrow ? ` <span class="licznik">${nFiltrow}</span>` : ''}</button>
     </div>
     ${stan.panel ? panelFiltrow() : ''}
+    ${zaznaczone.length ? `<div class="pasek-masowy">
+      <span>Zaznaczone: <b>${zaznaczone.length}</b> · razem <b>${esc(kwotaTxt(sumaZazn))}</b></span>
+      <button type="button" class="przycisk-maly" data-akcja="przelew-zbiorczy">Przelew zbiorczy z kodem QR</button>
+      <button type="button" class="przycisk-maly drugorzedny" data-akcja="odznacz">Odznacz</button>
+    </div>` : '<p class="podpowiedz">Kilka płatności do jednej osoby (np. wynagrodzenie i zwrot za zakupy)? Zaznacz je i wygeneruj jeden przelew z kodem QR.</p>'}
     ${dni.size ? [...dni.entries()].map(([d, lst]) => `
       <section class="dzien ${d < dzis ? 'po-terminie' : ''}">
         <h2>${esc(dataSlownie(d))} <span>${esc(relatywnie(d))}</span></h2>
@@ -495,7 +510,16 @@ export const ekranPlanowane = {
     else if (akcja === 'panel') stan.panel = !stan.panel;
     else if (akcja === 'wyczysc') ['rodzaje', 'konta', 'kategorie', 'podmioty'].forEach(k => stan[k].clear());
     else if (akcja.startsWith('f-')) { const z = stan[akcja.slice(2)]; if (z.has(v)) z.delete(v); else z.add(v); }
-    else return;
+    else if (akcja === 'odznacz') stan.zazn.clear();
+    else if (akcja === 'przelew-zbiorczy') {
+      const poz = [...stan.zazn].map(id => dane.planowane.find(x => x.id === id)).filter(Boolean);
+      if (await przelewZbiorczy(poz)) stan.zazn.clear();
+    } else return;
+    bezSkoku(renderPlanowane);
+  },
+  zmiana: e => {
+    if (e.target.name !== 'zazn-plan') return;
+    if (e.target.checked) stan.zazn.add(e.target.value); else stan.zazn.delete(e.target.value);
     bezSkoku(renderPlanowane);
   },
   wejscie: e => {
@@ -510,7 +534,7 @@ export const ekranPlanowane = {
 };
 
 export const ekranSubskrypcje = {
-  render: renderSubskrypcje,
+  render: () => { zbiorczo = false; renderSubskrypcje(); },
   klik: async e => {
     if (await klikWspolny(e, renderSubskrypcje)) return;
     const b = e.target.closest('[data-akcja="widok-sub"]');
