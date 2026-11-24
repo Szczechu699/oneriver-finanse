@@ -1007,3 +1007,4 @@ tr.wycofany td { opacity: .6; }
   .tabela-wyd td.akcje-wyd::before { content: none; }
   .tabela-wyd .chip.male-chip { justify-self: start; }
 }
+.wiersz-raty .akcje-raty { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }

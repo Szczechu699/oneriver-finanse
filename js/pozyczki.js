@@ -8,7 +8,7 @@ import * as sync from './sync.js';
 import { $, esc, zaokr, kwotaTxt, dataLok, dodajDni, dataSlownie, dataKrotko, uuid, liczba, liczbaNaTekst, toast, okno, bezSkoku, odmiana } from './util.js';
 import {
   dane, wczytajDane, konta, kolorKonta, RODZAJE_POZYCZEK, stronaPozyczki, harmonogram, stanPozyczki, ikona, kolorKategorii,
-  statusDlaKonta,
+  statusDlaKonta, glowne, podrzedne, podmioty,
 } from './dane.js';
 
 const PUSTA_TRANSAKCJA = {
@@ -233,6 +233,7 @@ function renderSzczegoly(id) {
       ${p.status !== 'aktywna' ? `<p class="status-pozyczki">${esc({ 'spłacona': 'Pożyczka spłacona.', 'zamknięta': 'Zamknięta bez pełnej spłaty.', anulowana: 'Pożyczka anulowana.' }[p.status] || p.status)}</p>` : ''}
       <div class="przyciski">
         ${p.status === 'aktywna' ? `<button type="button" data-akcja="dodaj-splate">${plus ? 'Zapisz zwrot' : 'Zapisz spłatę'}</button>` : ''}
+        ${p.status !== 'anulowana' ? '<button type="button" class="drugorzedny" data-akcja="edytuj">Edytuj</button>' : ''}
         ${p.status === 'aktywna' ? `<button type="button" class="drugorzedny" data-akcja="zamknij">Zamknij bez spłaty</button>` : ''}
         ${p.status === 'zamknięta' ? `<button type="button" class="drugorzedny" data-akcja="przywroc">Przywróć pożyczkę</button>` : ''}
         ${!s.splaty.length && p.status !== 'anulowana' ? `<button type="button" class="drugorzedny" data-akcja="anuluj">Anuluj wpis pożyczki</button>` : ''}
@@ -248,11 +249,12 @@ function renderSzczegoly(id) {
         const po = !zaplacona && rata.nastepna_data < dzis;
         return `<li class="wiersz-raty ${zaplacona ? 'rozliczona' : ''}">
           <span class="srodek"><span class="tytul">${esc(dataSlownie(rata.nastepna_data))}</span>
-            <span class="opis">${esc(rata.nazwa)}${czesciowo ? `, zostało ${esc(kwotaTxt(zostaje, p.waluta))}` : ''}</span>
+            <span class="opis">${esc(rata.nazwa)}${czesciowo ? `, zostało ${esc(kwotaTxt(zostaje, p.waluta))}` : ''}${!zaplacona && rata.konto ? ` · ${plus ? 'na konto' : 'z konta'} ${esc(rata.konto)}` : ''}</span>
             ${po ? '<span class="znaczniki"><span class="znacznik anul">po terminie</span></span>' : ''}</span>
           <span class="kwota-wiersza">${esc(kwotaTxt(Number(rata.kwota), p.waluta))}</span>
           ${zaplacona ? `<span class="znacznik rozliczono">${slowoZaplaty}</span>`
-            : p.status === 'aktywna' ? `<button type="button" class="przycisk-maly" data-akcja="zaplac-rate" data-v="${esc(rata.id)}">${slowoZaplaty}</button>` : ''}
+            : p.status === 'aktywna' ? `<span class="akcje-raty"><button type="button" class="przycisk-maly drugorzedny" data-akcja="zmien-rate" data-v="${esc(rata.id)}">Zmień</button>
+              <button type="button" class="przycisk-maly" data-akcja="zaplac-rate" data-v="${esc(rata.id)}">${slowoZaplaty}</button></span>` : ''}
         </li>`;
       }).join('')}</ul>
     </section>` : ''}
@@ -296,6 +298,123 @@ async function oknoSplaty(p) {
   toast(`Zapisano ${plus ? 'zwrot' : 'spłatę'} ${kwotaTxt(kwota, p.waluta)}.`, 'ok');
 }
 
+// ── edycja pożyczki i rat ──
+
+const wartoscPola = n => $(`#okno [name="${n}"]`)?.value ?? '';
+
+/**
+ * Edycja: osoba, data, kwota, konto, kategoria (zakup za mnie), podmiot, opis, termin zwrotu i konto spłaty.
+ * Zmienia też pierwotną transakcję i raty. Kwota i konto pierwotnej transakcji są zablokowane, gdy jest już
+ * potwierdzona wyciągiem; kwota – także przy kilku ratach (harmonogram).
+ */
+async function oknoEdycji(p) {
+  const s = stanPozyczki(p);
+  const zakup = p.rodzaj === 'zakup-za-mnie';
+  const plus = stronaPozyczki(p) === 'do-odzyskania';
+  const t = dane.transakcje.find(x => x.id === p.transakcja_id);
+  const potwierdzona = t && t.status === 'potwierdzona';
+  const aktywne = s.raty.filter(r => r.status === 'aktywna');
+  const kilkaRat = s.raty.length > 1;
+  const termin = !kilkaRat ? (s.raty[0]?.nastepna_data || '') : '';
+  const kontoSplat = aktywne[0]?.konto || s.raty[0]?.konto || '';
+  const kat = glowne('wydatek');
+  const pod = n => podrzedne('wydatek', n);
+  const opcjeKont = (wyb, puste) => `${puste ? `<option value="">${puste}</option>` : ''}${konta().map(k => `<option ${k.nazwa === wyb ? 'selected' : ''}>${esc(k.nazwa)}</option>`).join('')}`;
+  const blokadaKwoty = potwierdzona || kilkaRat;
+  const html = `
+    <label class="pole"><span class="etykieta">${esc(RODZAJE_POZYCZEK[p.rodzaj]?.osoba || 'Osoba')}</span><input name="e-osoba" value="${esc(p.osoba)}" autocomplete="off"></label>
+    <div class="rzad">
+      <label class="pole"><span class="etykieta">Data</span><input name="e-data" type="date" value="${esc(p.data)}"></label>
+      <label class="pole"><span class="etykieta">Kwota (${esc(p.waluta || 'PLN')})</span><input name="e-kwota" inputmode="decimal" value="${esc(liczbaNaTekst(p.kwota))}" ${blokadaKwoty ? 'disabled' : ''} autocomplete="off">
+        ${blokadaKwoty ? `<span class="podpowiedz">${potwierdzona ? 'Transakcja jest potwierdzona wyciągiem.' : 'Kwoty rat zmieniasz przy każdej racie.'}</span>` : ''}</label>
+    </div>
+    ${zakup ? `<div class="rzad">
+      <label class="pole"><span class="etykieta">Kategoria</span><select name="e-kategoria">${kat.map(k => `<option ${k.nazwa === p.kategoria ? 'selected' : ''}>${esc(k.nazwa)}</option>`).join('')}</select></label>
+      <label class="pole"><span class="etykieta">Podkategoria</span><select name="e-podkategoria"><option value="">—</option>${pod(p.kategoria).map(k => `<option ${k.nazwa === p.podkategoria ? 'selected' : ''}>${esc(k.nazwa)}</option>`).join('')}</select></label>
+    </div>` : `<label class="pole"><span class="etykieta">${plus ? 'Wypłacono z konta' : 'Wpłynęło na konto'}</span>
+      <select name="e-konto" ${potwierdzona ? 'disabled' : ''}>${opcjeKont(p.konto)}</select></label>`}
+    ${!kilkaRat ? `<label class="pole"><span class="etykieta">Termin ${plus ? 'zwrotu' : 'spłaty'}</span><input name="e-termin" type="date" value="${esc(termin)}">
+      <span class="podpowiedz">Puste = bez terminu.</span></label>` : ''}
+    ${s.raty.length || !kilkaRat ? `<label class="pole"><span class="etykieta">${plus ? 'Zwrot wpłynie na konto' : 'Spłacę z konta'}</span>
+      <select name="e-konto-splat">${opcjeKont(kontoSplat, '— wybiorę przy spłacie —')}</select>
+      ${kilkaRat ? '<span class="podpowiedz">Dla wszystkich niezapłaconych rat.</span>' : ''}</label>` : ''}
+    <label class="pole"><span class="etykieta">Podmiot</span><select name="e-podmiot">${podmioty().map(x => `<option ${x === p.podmiot ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></label>
+    <label class="pole"><span class="etykieta">Opis</span><input name="e-opis" value="${esc(p.opis || '')}" autocomplete="off"></label>`;
+  const pokaz = okno('Edycja pożyczki', html, [{ etykieta: 'Anuluj', wartosc: false, klasa: 'drugorzedny' }, { etykieta: 'Zapisz', wartosc: true }]);
+  // podkategorie zależne od kategorii
+  $('#okno [name="e-kategoria"]')?.addEventListener('change', e => {
+    $('#okno [name="e-podkategoria"]').innerHTML = `<option value="">—</option>${pod(e.target.value).map(k => `<option>${esc(k.nazwa)}</option>`).join('')}`;
+  });
+  if (!await pokaz) return false;
+
+  const osoba = wartoscPola('e-osoba').trim();
+  const data = wartoscPola('e-data') || p.data;
+  const kwota = blokadaKwoty ? Number(p.kwota) : zaokr(liczba(wartoscPola('e-kwota')));
+  if (!osoba) { toast('Wpisz osobę.', 'blad'); return false; }
+  if (!(kwota > 0)) { toast('Wpisz kwotę większą od zera.', 'blad'); return false; }
+  if (kwota < s.splacono - 0.005) { toast(`Spłacono już ${kwotaTxt(s.splacono, p.waluta)} – kwota nie może być mniejsza.`, 'blad'); return false; }
+  const konto = zakup ? '' : (potwierdzona ? p.konto : wartoscPola('e-konto'));
+  const kategoria = zakup ? wartoscPola('e-kategoria') : '';
+  const podkategoria = zakup ? wartoscPola('e-podkategoria') : '';
+  const podmiot = wartoscPola('e-podmiot');
+  const opis = wartoscPola('e-opis').trim();
+  const kontoSplatNowe = wartoscPola('e-konto-splat');
+  const terminNowy = kilkaRat ? null : wartoscPola('e-termin');
+
+  const nowaP = { ...p, osoba, data, kwota, konto, kategoria, podkategoria, podmiot, opis };
+  const paczkiT = [];
+  if (t) {
+    const nt = { ...t, data_operacji: data, kontrahent: osoba, podmiot, opis, kategoria: zakup ? kategoria : t.kategoria, podkategoria: zakup ? podkategoria : t.podkategoria };
+    if (!potwierdzona) Object.assign(nt, { kwota, konto, ...kursy(t.waluta || p.waluta || 'PLN', kwota), status: zakup ? t.status : statusDlaKonta(konto) });
+    paczkiT.push(nt);
+  }
+  const plany = [];
+  const r = RODZAJE_POZYCZEK[p.rodzaj];
+  // raty: osoba, podmiot, konto spłaty (niezapłacone); termin i kwota przy jednej racie
+  for (const rata of s.raty) {
+    const n = { ...rata, kontrahent: osoba, podmiot, nazwa: tytulRaty({ ...nowaP }, { z: s.raty.length, nr: s.raty.indexOf(rata) + 1 }) };
+    if (rata.status === 'aktywna') n.konto = kontoSplatNowe;
+    if (!kilkaRat) {
+      if (terminNowy) Object.assign(n, { data_start: terminNowy, nastepna_data: terminNowy, kwota });
+      else if (rata.status === 'aktywna') n.status = 'anulowana';   // termin usunięty – bez terminu
+    }
+    plany.push(n);
+  }
+  if (!kilkaRat && terminNowy && !s.raty.length) {          // dotąd bez terminu – nowa rata
+    plany.push({
+      id: uuid(), nazwa: tytulRaty(nowaP, { z: 1, nr: 1 }), typ: r.splata, rodzaj: 'rata', kwota, waluta: p.waluta || 'PLN',
+      konto: kontoSplatNowe, konto_docelowe: '', kategoria: '', podkategoria: '', zrodlo_przychodu: '', kontrahent: osoba, podmiot,
+      tagi: p.tagi || '', data_start: terminNowy, powtarzanie: '', co_ile: '', data_koniec: '', nastepna_data: terminNowy,
+      przypomnienie_dni: 3, status: 'aktywna', opis, budzet: '', pozyczka_id: p.id,
+    });
+  }
+  if (!kilkaRat) Object.assign(nowaP, { splata: terminNowy ? 'jednorazowo' : 'bez-terminu', liczba_rat: terminNowy ? 1 : '', pierwsza_rata: terminNowy || '' });
+  await zapiszIUzgodnij(p.id, [{ karta: 'POZYCZKI', wiersze: [nowaP] }, { karta: 'TRANSAKCJE', wiersze: paczkiT }, { karta: 'PLANOWANE', wiersze: plany }]);
+  toast('Zapisano zmiany pożyczki.', 'ok');
+  return true;
+}
+
+/** Zmiana jednej niezapłaconej raty: termin, kwota, konto spłaty. */
+async function oknoRaty(p, rata) {
+  const plus = stronaPozyczki(p) === 'do-odzyskania';
+  const ok = await okno('Zmień ratę', `
+    <div class="rzad">
+      <label class="pole"><span class="etykieta">Termin</span><input name="r-data" type="date" value="${esc(rata.nastepna_data)}"></label>
+      <label class="pole"><span class="etykieta">Kwota (${esc(p.waluta || 'PLN')})</span><input name="r-kwota" inputmode="decimal" value="${esc(liczbaNaTekst(rata.kwota))}" autocomplete="off"></label>
+    </div>
+    <label class="pole"><span class="etykieta">${plus ? 'Zwrot wpłynie na konto' : 'Spłacę z konta'}</span>
+      <select name="r-konto"><option value="">— wybiorę przy spłacie —</option>${konta().map(k => `<option ${k.nazwa === rata.konto ? 'selected' : ''}>${esc(k.nazwa)}</option>`).join('')}</select></label>
+    <p class="podpowiedz">Zmiana kwoty raty nie zmienia kwoty pożyczki – suma rat może się wtedy od niej różnić.</p>`,
+  [{ etykieta: 'Anuluj', wartosc: false, klasa: 'drugorzedny' }, { etykieta: 'Zapisz', wartosc: true }]);
+  if (!ok) return false;
+  const data = wartoscPola('r-data') || rata.nastepna_data;
+  const kwota = zaokr(liczba(wartoscPola('r-kwota')));
+  if (!(kwota > 0)) { toast('Wpisz kwotę większą od zera.', 'blad'); return false; }
+  await zapiszIUzgodnij(p.id, [{ karta: 'PLANOWANE', wiersze: [{ ...rata, data_start: data, nastepna_data: data, kwota, konto: wartoscPola('r-konto') }] }]);
+  toast('Zapisano ratę.', 'ok');
+  return true;
+}
+
 export async function klik(e) {
   const b = e.target.closest('[data-akcja]');
   if (!b) return;
@@ -305,6 +424,11 @@ export async function klik(e) {
   const p = dane.pozyczki.find(x => x.id === id);
   if (!p) return;
   if (akcja === 'dodaj-splate') await oknoSplaty(p);
+  else if (akcja === 'edytuj') { if (!await oknoEdycji(p)) return; }
+  else if (akcja === 'zmien-rate') {
+    const rata = dane.planowane.find(x => x.id === v);
+    if (!rata || !await oknoRaty(p, rata)) return;
+  }
   else if (akcja === 'zaplac-rate') {
     b.disabled = true;
     const rata = dane.planowane.find(x => x.id === v);
